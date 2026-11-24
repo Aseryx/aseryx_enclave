@@ -17,19 +17,28 @@ pub enum ClaimError {
     /// The API could not be reached or did not answer.
     #[error("the API did not answer the claim")]
     Transport,
-    /// The API refused the token or had no job for this container.
+    /// The API refused the token or the runtime data.
     #[error("the API refused the claim")]
     Refused,
+    /// The API has no launched job this container can take.
+    #[error("the API has no job for this container")]
+    NoJob,
 }
 
 /// Where a workload asks for its job.
 pub trait JobSource {
-    /// Presents token 1 and the memory the container can see, in gigabytes. Returns the job id assigned.
+    /// Presents token 1, the exact runtime data it attests and the memory the container can see, in gigabytes. Returns
+    /// the job id assigned.
     ///
     /// # Errors
     ///
     /// A [`ClaimError`] if no job was assigned.
-    fn claim(&self, token: &str, memory_gb: u32) -> Result<Bytes32, ClaimError>;
+    fn claim(
+        &self,
+        token: &str,
+        runtime_data: &RuntimeData,
+        memory_gb: u32,
+    ) -> Result<Bytes32, ClaimError>;
 }
 
 /// A claimed job and everything the workload needs to carry it out.
@@ -65,7 +74,7 @@ pub fn claim_job(
         .attest(&claim)
         .map_err(|_| ErrorCode::AttestationFailed)?;
     let job_id = source
-        .claim(&first, memory_gb)
+        .claim(&first, &claim, memory_gb)
         .map_err(|_| ErrorCode::ClaimFailed)?;
     let runtime_data = claim.for_job(&job_id);
     let token = attestor

@@ -4,6 +4,7 @@
 //! through the decrypt Lit Action, runs the appraisal engine as a sandboxed WebAssembly module over the decrypted
 //! bytes, and returns a signed result.
 
+pub mod api;
 pub mod attest;
 pub mod claim;
 pub mod consent;

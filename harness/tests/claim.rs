@@ -46,16 +46,22 @@ impl Attestor for Attestations {
 
 /// Records what it is asked and answers with a fixed result.
 struct Api {
-    asked: Mutex<Vec<(String, u32)>>,
+    asked: Mutex<Vec<(String, Vec<u8>, u32)>>,
     answer: Result<Bytes32, ClaimError>,
 }
 
 impl JobSource for Api {
-    fn claim(&self, token: &str, memory_gb: u32) -> Result<Bytes32, ClaimError> {
-        self.asked
-            .lock()
-            .expect("lock")
-            .push((token.to_owned(), memory_gb));
+    fn claim(
+        &self,
+        token: &str,
+        runtime_data: &RuntimeData,
+        memory_gb: u32,
+    ) -> Result<Bytes32, ClaimError> {
+        self.asked.lock().expect("lock").push((
+            token.to_owned(),
+            runtime_data.to_bytes(),
+            memory_gb,
+        ));
         self.answer
     }
 }
@@ -93,15 +99,16 @@ fn token_one_carries_the_keys_and_token_two_adds_the_job() {
     );
 }
 
-/// The API sees token 1 and the memory, and only token 1.
+/// The API sees token 1, the exact bytes token 1 attests and the memory, and nothing of token 2.
 #[test]
-fn the_api_is_given_token_one_and_the_memory() {
+fn the_api_is_given_token_one_the_runtime_data_and_the_memory() {
+    let attestor = Attestations::new(None);
     let source = api(Ok(Bytes32::parse(JOB).expect("job")));
-    claim_job(&Attestations::new(None), &source, 11).expect("claimed");
-    assert_eq!(
-        *source.asked.lock().expect("lock"),
-        vec![("token1.x.y".to_owned(), 11)]
-    );
+    claim_job(&attestor, &source, 11).expect("claimed");
+    let asked = source.asked.lock().expect("lock");
+    assert_eq!(asked.len(), 1);
+    assert_eq!((asked[0].0.as_str(), asked[0].2), ("token1.x.y", 11));
+    assert_eq!(asked[0].1, attestor.seen.lock().expect("lock")[0]);
 }
 
 /// Every claim generates new keys.
