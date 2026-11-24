@@ -2,7 +2,7 @@
 //! produced them in the vendored vector.
 
 use aseryx_enclave_harness::consent::{
-    Address, AppraisalJob, Bytes32, ConsentError, DisputeJob, Domain, ThresholdAnswerApproval,
+    Address, AppraisalJob, Bytes32, ConsentError, DisputeJob, Domain, Tcb, ThresholdAnswerApproval,
     ThresholdJob, Uint256, canonical_json, result_digest,
 };
 use serde_json::{Value, json};
@@ -110,6 +110,10 @@ fn the_digest_depends_on_the_domain_and_the_fields() {
         ("rulesVersion", json!("v13.0")),
         ("workloadIdentity", json!(format!("0x{}", "22".repeat(32)))),
         ("jobId", json!(format!("0x{}", "33".repeat(32)))),
+        ("minBootloaderSvn", json!(11)),
+        ("minTeeSvn", json!(2)),
+        ("minSnpSvn", json!(31)),
+        ("minMicrocodeSvn", json!(92)),
         ("expiresAt", json!("1795556001")),
     ] {
         let mut changed = consent.clone();
@@ -268,5 +272,153 @@ fn a_domain_needs_a_chain_id() {
     assert_eq!(
         Address::parse(&format!("0x{}", "g".repeat(40))),
         Err(ConsentError::Address)
+    );
+}
+
+/// The vectors carry non-trivial firmware minimums, and each minimum changes the digest.
+#[test]
+fn the_firmware_minimums_are_in_the_vectors_and_the_digest() {
+    let d = domain();
+    let (consent, _) = entry("AppraisalJob");
+    let job: AppraisalJob = serde_json::from_value(consent.clone()).expect("parse");
+    assert_eq!(
+        job.min_tcb(),
+        Tcb {
+            bootloader: 10,
+            tee: 0,
+            snp: 30,
+            microcode: 91
+        }
+    );
+    let (threshold, _) = entry("ThresholdJob");
+    assert_eq!(
+        serde_json::from_value::<ThresholdJob>(threshold)
+            .expect("parse")
+            .min_tcb(),
+        Tcb {
+            bootloader: 7,
+            tee: 1,
+            snp: 23,
+            microcode: u32::MAX
+        }
+    );
+    let (dispute, _) = entry("DisputeJob");
+    assert_eq!(
+        serde_json::from_value::<DisputeJob>(dispute)
+            .expect("parse")
+            .min_tcb(),
+        Tcb {
+            bootloader: 0,
+            tee: 0,
+            snp: 0,
+            microcode: 0
+        }
+    );
+    for field in [
+        "minBootloaderSvn",
+        "minTeeSvn",
+        "minSnpSvn",
+        "minMicrocodeSvn",
+    ] {
+        let mut changed = consent.clone();
+        changed[field] = json!(changed[field].as_u64().expect("number") + 1);
+        let other: AppraisalJob = serde_json::from_value(changed).expect("parse");
+        assert_ne!(other.digest(d), job.digest(d), "{field}");
+    }
+}
+
+/// A firmware minimum is a uint32, as a number or a decimal string, and never more.
+#[test]
+fn a_firmware_minimum_is_a_uint32() {
+    let (consent, digest) = entry("AppraisalJob");
+    for field in [
+        "minBootloaderSvn",
+        "minTeeSvn",
+        "minSnpSvn",
+        "minMicrocodeSvn",
+    ] {
+        for good in [
+            json!(0),
+            json!("0"),
+            json!(4_294_967_295u64),
+            json!("4294967295"),
+            json!("91"),
+        ] {
+            let mut changed = consent.clone();
+            changed[field] = good.clone();
+            assert!(
+                serde_json::from_value::<AppraisalJob>(changed).is_ok(),
+                "{field}={good}"
+            );
+        }
+        for bad in [
+            json!(4_294_967_296u64),
+            json!("4294967296"),
+            json!(-1),
+            json!("-1"),
+            json!(1.5),
+            json!("1.5"),
+            json!("01"),
+            json!(""),
+            json!("x"),
+            json!(null),
+            json!(true),
+        ] {
+            let mut changed = consent.clone();
+            changed[field] = bad.clone();
+            assert!(
+                serde_json::from_value::<AppraisalJob>(changed).is_err(),
+                "{field}={bad}"
+            );
+        }
+    }
+    let mut as_string = consent.clone();
+    as_string["minSnpSvn"] = json!("30");
+    assert_eq!(
+        serde_json::from_value::<AppraisalJob>(as_string)
+            .expect("parse")
+            .digest(domain())
+            .to_string(),
+        digest
+    );
+}
+
+/// The effective minimum is the higher of the floor and the consent, per version.
+#[test]
+fn the_effective_minimum_is_the_higher_of_the_floor_and_the_consent() {
+    let floor = Tcb {
+        bootloader: 10,
+        tee: 0,
+        snp: 23,
+        microcode: 84,
+    };
+    let below = Tcb {
+        bootloader: 1,
+        tee: 0,
+        snp: 5,
+        microcode: 50,
+    };
+    let above = Tcb {
+        bootloader: 12,
+        tee: 3,
+        snp: 40,
+        microcode: 120,
+    };
+    let mixed = Tcb {
+        bootloader: 9,
+        tee: 1,
+        snp: 30,
+        microcode: 10,
+    };
+    assert_eq!(below.at_least(floor), floor);
+    assert_eq!(above.at_least(floor), above);
+    assert_eq!(
+        mixed.at_least(floor),
+        Tcb {
+            bootloader: 10,
+            tee: 1,
+            snp: 30,
+            microcode: 84
+        }
     );
 }

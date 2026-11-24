@@ -42,6 +42,9 @@ pub enum ConsentError {
     /// A threshold job did not name between one and five checks.
     #[error("needs 1 to {MAX_CHECKS} check hashes")]
     CheckCount,
+    /// A firmware version was not a uint32.
+    #[error("not a uint32")]
+    Svn,
     /// A chain id was zero.
     #[error("the chain id is zero")]
     ChainId,
@@ -181,6 +184,65 @@ impl<'de> Deserialize<'de> for Uint256 {
     }
 }
 
+/// A firmware version number: a uint32, read from a number or a decimal string.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Svn(pub u32);
+
+impl<'de> Deserialize<'de> for Svn {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct SvnVisitor;
+        impl Visitor<'_> for SvnVisitor {
+            type Value = Svn;
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a uint32 as a number or a decimal string")
+            }
+            fn visit_str<E: de::Error>(self, text: &str) -> Result<Svn, E> {
+                let plain = !text.is_empty()
+                    && text.bytes().all(|b| b.is_ascii_digit())
+                    && (text == "0" || !text.starts_with('0'));
+                if !plain {
+                    return Err(E::custom(ConsentError::Svn));
+                }
+                text.parse()
+                    .map(Svn)
+                    .map_err(|_| E::custom(ConsentError::Svn))
+            }
+            fn visit_u64<E: de::Error>(self, value: u64) -> Result<Svn, E> {
+                u32::try_from(value)
+                    .map(Svn)
+                    .map_err(|_| E::custom(ConsentError::Svn))
+            }
+        }
+        deserializer.deserialize_any(SvnVisitor)
+    }
+}
+
+/// The four SEV-SNP firmware versions a token reports and a consent can set minimums for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Tcb {
+    /// The bootloader version.
+    pub bootloader: u32,
+    /// The trusted execution environment version.
+    pub tee: u32,
+    /// The SNP firmware version.
+    pub snp: u32,
+    /// The microcode version.
+    pub microcode: u32,
+}
+
+impl Tcb {
+    /// For each firmware version, the higher of `self` and `floor`.
+    #[must_use]
+    pub fn at_least(self, floor: Self) -> Self {
+        Self {
+            bootloader: self.bootloader.max(floor.bootloader),
+            tee: self.tee.max(floor.tee),
+            snp: self.snp.max(floor.snp),
+            microcode: self.microcode.max(floor.microcode),
+        }
+    }
+}
+
 /// A non-empty string of at most `MAX` characters.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Text<const MAX: usize>(String);
@@ -272,6 +334,10 @@ fn text_word<const MAX: usize>(text: &Text<MAX>) -> [u8; 32] {
     keccak(&[text.0.as_bytes()])
 }
 
+fn svn_word(value: Svn) -> [u8; 32] {
+    Uint256::from_u64(u64::from(value.0)).0
+}
+
 fn bool_word(value: bool) -> [u8; 32] {
     Uint256::from_u64(u64::from(value)).0
 }
@@ -307,12 +373,20 @@ pub struct AppraisalJob {
     pub workload_identity: Bytes32,
     /// The job id.
     pub job_id: Bytes32,
+    /// The lowest bootloader version the signer accepts.
+    pub min_bootloader_svn: Svn,
+    /// The lowest trusted execution environment version the signer accepts.
+    pub min_tee_svn: Svn,
+    /// The lowest SNP firmware version the signer accepts.
+    pub min_snp_svn: Svn,
+    /// The lowest microcode version the signer accepts.
+    pub min_microcode_svn: Svn,
     /// When the consent expires, in seconds since the epoch.
     pub expires_at: Uint256,
 }
 
 impl Typed for AppraisalJob {
-    const TYPE: &'static str = "AppraisalJob(uint256 tokenId,string dataset,string manifestCid,bytes32 plaintextHash,string family,string rulesVersion,bytes32 workloadIdentity,bytes32 jobId,uint256 expiresAt)";
+    const TYPE: &'static str = "AppraisalJob(uint256 tokenId,string dataset,string manifestCid,bytes32 plaintextHash,string family,string rulesVersion,bytes32 workloadIdentity,bytes32 jobId,uint32 minBootloaderSvn,uint32 minTeeSvn,uint32 minSnpSvn,uint32 minMicrocodeSvn,uint256 expiresAt)";
     fn words(&self) -> Vec<[u8; 32]> {
         vec![
             self.token_id.0,
@@ -323,12 +397,27 @@ impl Typed for AppraisalJob {
             text_word(&self.rules_version),
             self.workload_identity.0,
             self.job_id.0,
+            svn_word(self.min_bootloader_svn),
+            svn_word(self.min_tee_svn),
+            svn_word(self.min_snp_svn),
+            svn_word(self.min_microcode_svn),
             self.expires_at.0,
         ]
     }
 }
 
 impl AppraisalJob {
+    /// The firmware minimums the signer asks for.
+    #[must_use]
+    pub fn min_tcb(&self) -> Tcb {
+        Tcb {
+            bootloader: self.min_bootloader_svn.0,
+            tee: self.min_tee_svn.0,
+            snp: self.min_snp_svn.0,
+            microcode: self.min_microcode_svn.0,
+        }
+    }
+
     /// The digest the owner signs.
     #[must_use]
     pub fn digest(&self, domain: Domain) -> Bytes32 {
@@ -360,12 +449,20 @@ pub struct ThresholdJob {
     pub workload_identity: Bytes32,
     /// The job id.
     pub job_id: Bytes32,
+    /// The lowest bootloader version the signer accepts.
+    pub min_bootloader_svn: Svn,
+    /// The lowest trusted execution environment version the signer accepts.
+    pub min_tee_svn: Svn,
+    /// The lowest SNP firmware version the signer accepts.
+    pub min_snp_svn: Svn,
+    /// The lowest microcode version the signer accepts.
+    pub min_microcode_svn: Svn,
     /// When the consent expires, in seconds since the epoch.
     pub expires_at: Uint256,
 }
 
 impl Typed for ThresholdJob {
-    const TYPE: &'static str = "ThresholdJob(uint256 tokenId,string dataset,string manifestCid,bytes32 plaintextHash,string family,string rulesVersion,uint256 labelHash,bytes32[] checkHashes,bytes32 workloadIdentity,bytes32 jobId,uint256 expiresAt)";
+    const TYPE: &'static str = "ThresholdJob(uint256 tokenId,string dataset,string manifestCid,bytes32 plaintextHash,string family,string rulesVersion,uint256 labelHash,bytes32[] checkHashes,bytes32 workloadIdentity,bytes32 jobId,uint32 minBootloaderSvn,uint32 minTeeSvn,uint32 minSnpSvn,uint32 minMicrocodeSvn,uint256 expiresAt)";
     fn words(&self) -> Vec<[u8; 32]> {
         let hashes: Vec<&[u8]> = self
             .check_hashes
@@ -384,12 +481,27 @@ impl Typed for ThresholdJob {
             keccak(&hashes),
             self.workload_identity.0,
             self.job_id.0,
+            svn_word(self.min_bootloader_svn),
+            svn_word(self.min_tee_svn),
+            svn_word(self.min_snp_svn),
+            svn_word(self.min_microcode_svn),
             self.expires_at.0,
         ]
     }
 }
 
 impl ThresholdJob {
+    /// The firmware minimums the signer asks for.
+    #[must_use]
+    pub fn min_tcb(&self) -> Tcb {
+        Tcb {
+            bootloader: self.min_bootloader_svn.0,
+            tee: self.min_tee_svn.0,
+            snp: self.min_snp_svn.0,
+            microcode: self.min_microcode_svn.0,
+        }
+    }
+
     /// The digest the owner signs.
     #[must_use]
     pub fn digest(&self, domain: Domain) -> Bytes32 {
@@ -419,12 +531,20 @@ pub struct DisputeJob {
     pub workload_identity: Bytes32,
     /// The job id.
     pub job_id: Bytes32,
+    /// The lowest bootloader version the signer accepts.
+    pub min_bootloader_svn: Svn,
+    /// The lowest trusted execution environment version the signer accepts.
+    pub min_tee_svn: Svn,
+    /// The lowest SNP firmware version the signer accepts.
+    pub min_snp_svn: Svn,
+    /// The lowest microcode version the signer accepts.
+    pub min_microcode_svn: Svn,
     /// When the consent expires, in seconds since the epoch.
     pub expires_at: Uint256,
 }
 
 impl Typed for DisputeJob {
-    const TYPE: &'static str = "DisputeJob(uint256 disputeId,uint256 tokenId,string dataset,address buyer,bytes32 evidenceHash,string family,string rulesVersion,bytes32 workloadIdentity,bytes32 jobId,uint256 expiresAt)";
+    const TYPE: &'static str = "DisputeJob(uint256 disputeId,uint256 tokenId,string dataset,address buyer,bytes32 evidenceHash,string family,string rulesVersion,bytes32 workloadIdentity,bytes32 jobId,uint32 minBootloaderSvn,uint32 minTeeSvn,uint32 minSnpSvn,uint32 minMicrocodeSvn,uint256 expiresAt)";
     fn words(&self) -> Vec<[u8; 32]> {
         vec![
             self.dispute_id.0,
@@ -436,12 +556,27 @@ impl Typed for DisputeJob {
             text_word(&self.rules_version),
             self.workload_identity.0,
             self.job_id.0,
+            svn_word(self.min_bootloader_svn),
+            svn_word(self.min_tee_svn),
+            svn_word(self.min_snp_svn),
+            svn_word(self.min_microcode_svn),
             self.expires_at.0,
         ]
     }
 }
 
 impl DisputeJob {
+    /// The firmware minimums the signer asks for.
+    #[must_use]
+    pub fn min_tcb(&self) -> Tcb {
+        Tcb {
+            bootloader: self.min_bootloader_svn.0,
+            tee: self.min_tee_svn.0,
+            snp: self.min_snp_svn.0,
+            microcode: self.min_microcode_svn.0,
+        }
+    }
+
     /// The digest the buyer signs.
     #[must_use]
     pub fn digest(&self, domain: Domain) -> Bytes32 {
