@@ -11,7 +11,8 @@ base64 = "0.23.1"
 flate2 = "1.1.11"
 getrandom = "0.4.3"
 hex = "0.4.3"
-hpke = { version = "0.15.1", features = ["x25519"] }
+hkdf = "0.13.0"
+hpke = { version = "0.15.1", features = ["aes", "alloc", "getrandom", "hkdfsha2", "x25519"], default-features = false }
 k256 = { version = "0.14.0", features = ["ecdsa"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }

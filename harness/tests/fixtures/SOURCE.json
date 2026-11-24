@@ -11,6 +11,24 @@
       "source": "ethers 6 SigningKey over the secret 0x11 repeated 32 times (a test key) and the result digest of consent-vector.json: new SigningKey(secret).sign(digest).serialized and SigningKey.computePublicKey(secret, true)",
       "sourceCommit": "c9b9133",
       "sha256": "1f13a30f7013b901387f43bbe3008898ab019597075fc60b9890e3c2259d567e"
+    },
+    {
+      "file": "enclave-vectors.json",
+      "source": "aseryx_digital_key lit-actions/test/enclave-vectors.json, written by lit-actions/test/make-enclave-vectors.mjs",
+      "sourceCommit": "6b75c1f",
+      "sha256": "0dc58c1aae4a0d3a8de6e0dbc3c407b027b3912e0c07abf09e535239684bf47b"
+    },
+    {
+      "file": "get-dataset-fuji.json",
+      "source": "a read-only getDataset call on Avalanche Fuji for token 1 of 0x5Db410D07931Efc7CF1d01545e773992Ab1988b2, decoded with ethers 6",
+      "sourceCommit": "none: chain data",
+      "sha256": "9a24bae5d7edbdc53ab9923d4dfe8474c43e8cf45642d8bda08377be907c0b99"
+    },
+    {
+      "file": "real-manifest.json",
+      "source": "the manifest QmNnaigry3WZb1FV97KgUzQnwmwqFX9hZexYi5AXd1LpnN, fetched from gateway.pinata.cloud",
+      "sourceCommit": "none: pinned data",
+      "sha256": "f3c8d368b94bfbf3d9cab2c24770789fae436ae2e66989e47168d85f12133dcc"
     }
   ]
 }

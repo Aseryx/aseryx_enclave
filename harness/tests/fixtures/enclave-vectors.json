@@ -1,0 +1,17 @@
+{
+  "labelEnvelope": {
+    "datasetKey": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+    "labelText": "{\"label_version\":5,\"salt\":\"abababababababababababababababababababababababababababababababab\",\"columns\":[{\"name\":\"région\",\"kind\":\"text\"}],\"rows\":300}",
+    "envelope": "{\"v\":1,\"iv\":\"yMnKy8zNzs/Q0dLT\",\"ct\":\"gHVxjQ4+vkl2XI//8meo++yc02a9WNpjqdfSqK8jcKFb9X2xzs1NQpUe6O+qKEoy4sR4NIo5zvEA2jtmldIaO0LevmZNgjvCX4/vjRB92yRgm5NT7HflP+B7zwbue0sU4A4jnPwtUT3dqassW9TQ75abOA4x+vKr/D5N0NVdvAZbJgKq4t0396lq7ICnvvxGNHLFOeUv9fZCUTlD0uqURHKsIbQs\"}"
+  },
+  "attestedResponse": {
+    "ikm": "5a5b5c5d5e5f606162636465666768696a6b6c6d6e6f70717273747576777879",
+    "responsePublicKey": "b6f6fd58b19a2172d47c8babeb40355515abf3a4b3053a1a9deacddd9770d53f",
+    "consentDigest": "0x12423e0482f3e81cb1d23230664e95bb3d11b9f34f06fc199e588d4cdab6e4d4",
+    "key": "969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5",
+    "sealed": {
+      "enc": "pqblyTh53o93y5e09jA1Vi1Zm2LGbg8l4mQHCwBrSDw",
+      "ciphertext": "LSyUr6G8WxJNnC1g-0DE63IFnGTdJO2OIAQnO1Oe44cCf3lbW_v3h6TTMhBtkU9R"
+    }
+  }
+}
