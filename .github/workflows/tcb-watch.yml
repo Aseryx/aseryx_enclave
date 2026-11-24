@@ -1,0 +1,114 @@
+name: tcb watch
+
+# Every Monday, deploys the attestation sidecar as a confidential container group in East US, reads one Azure
+# Attestation token, records the SEV-SNP firmware versions it reports, and deletes the group. The run fails when the
+# firmware is at AMD's fixed version, so GitHub emails, and when the deployment or the token fails.
+
+on:
+  schedule:
+    - cron: "0 15 * * 1"
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: write
+
+concurrency:
+  group: tcb-watch
+  cancel-in-progress: false
+
+env:
+  RESOURCE_GROUP: aseryx-enclave-spike
+  GROUP_NAME: tcb-watch-${{ github.run_id }}
+  RUNTIME_DATA_BASE64: eyJ2IjoxLCJ3YXRjaCI6dHJ1ZX0=
+  FIXED_SNPFW: "30"
+
+jobs:
+  watch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Test the token reader
+        run: node --test tcb-watch/verify.test.mjs
+
+      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Generate the policy
+        run: |
+          az extension add --name confcom --version 2.4.1 --yes
+          jq --arg name "$GROUP_NAME" '{apiVersion: "2023-05-01", resources: [(. + {name: $name})]}' tcb-watch/group.json > template.json
+          az confcom acipolicygen --template-file template.json --debug-mode --enable-stdio -y
+          jq -r '.resources[0].properties.confidentialComputeProperties.ccePolicy' template.json | base64 -d | sha256sum | cut -d' ' -f1 > hostdata.txt
+          echo "workload identity ${GITHUB_RUN_ID}: $(cut -c1-16 hostdata.txt)..."
+
+      - name: Deploy the container group
+        run: |
+          SUB=$(az account show --query id -o tsv)
+          URL="https://management.azure.com/subscriptions/$SUB/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.ContainerInstance/containerGroups/$GROUP_NAME?api-version=2023-05-01"
+          jq '.resources[0] | {location, properties}' template.json > body.json
+          az rest --method put --url "$URL" --body @body.json --output none
+
+      - name: Wait for the attestation client and read its token
+        run: |
+          state=""
+          for _ in $(seq 1 60); do
+            state=$(az container show -g "$RESOURCE_GROUP" -n "$GROUP_NAME" --query "containers[?name=='attest-client'].instanceView.currentState.state | [0]" -o tsv || true)
+            [ "$state" = "Terminated" ] && break
+            sleep 5
+          done
+          [ "$state" = "Terminated" ] || { echo "the attestation client did not finish"; exit 1; }
+          az container logs -g "$RESOURCE_GROUP" -n "$GROUP_NAME" --container-name attest-client > client.log
+          sed -n '/^TOKEN_BEGIN$/,/^TOKEN_END$/p' client.log | sed '1d;$d' | jq -r .token > token.jwt
+          test -s token.jwt
+
+      - name: Check the token and read the firmware versions
+        id: tcb
+        run: |
+          node tcb-watch/verify.mjs token.jwt "$(cat hostdata.txt)" "$RUNTIME_DATA_BASE64" > tcb.json
+          entry=$(jq -c --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson fixed "$FIXED_SNPFW" \
+            '{date: $date, region: "eastus", chipFamily, snpfw, microcode, bootloader, tee, patched: (.snpfw >= $fixed)}' tcb.json)
+          echo "$entry" > entry.json
+          echo "patched=$(jq -r .patched entry.json)" >> "$GITHUB_OUTPUT"
+          {
+            echo "### SEV-SNP firmware reported by Azure East US"
+            echo ""
+            echo "| chip | snpfw | microcode | bootloader | tee | patched (snpfw >= $FIXED_SNPFW) |"
+            echo "|---|---|---|---|---|---|"
+            jq -r '"| \(.chipFamily) | \(.snpfw) | \(.microcode) | \(.bootloader) | \(.tee) | \(.patched) |"' entry.json
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Append the entry to the tcb-watch branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin tcb-watch > /dev/null; then
+            git fetch origin tcb-watch
+            git worktree add ../log -B tcb-watch origin/tcb-watch
+          else
+            git worktree add --orphan -b tcb-watch ../log
+          fi
+          mkdir -p ../log/tcb-watch
+          cat entry.json >> ../log/tcb-watch/log.jsonl
+          git -C ../log add tcb-watch/log.jsonl
+          git -C ../log commit -m "Record the firmware versions of $(date -u +%Y-%m-%d)"
+          git -C ../log push origin tcb-watch
+
+      - name: Delete the container group and confirm none remain
+        if: always()
+        run: |
+          az container delete -g "$RESOURCE_GROUP" -n "$GROUP_NAME" --yes || true
+          left=$(az container list -g "$RESOURCE_GROUP" --query "[?starts_with(name, 'tcb-watch-')] | length(@)" -o tsv)
+          echo "tcb-watch container groups left: $left"
+          test "$left" = "0"
+
+      - name: Fail when the firmware is at AMD's fixed version
+        if: steps.tcb.outputs.patched == 'true'
+        run: |
+          echo "::error::Azure East US now reports SNP firmware ${FIXED_SNPFW} or newer"
+          exit 1

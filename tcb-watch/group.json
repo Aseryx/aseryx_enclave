@@ -1,0 +1,55 @@
+{
+  "type": "Microsoft.ContainerInstance/containerGroups",
+  "apiVersion": "2023-05-01",
+  "name": "tcb-watch",
+  "location": "eastus",
+  "properties": {
+    "containers": [
+      {
+        "name": "skr-sidecar",
+        "properties": {
+          "command": [
+            "/skr.sh"
+          ],
+          "environmentVariables": [],
+          "image": "mcr.microsoft.com/aci/skr:2.12",
+          "resources": {
+            "requests": {
+              "cpu": 0.5,
+              "memoryInGB": 1
+            }
+          },
+          "ports": [
+            {
+              "port": 8080
+            }
+          ]
+        }
+      },
+      {
+        "name": "attest-client",
+        "properties": {
+          "command": [
+            "/bin/sh",
+            "-c",
+            "i=0; while [ $i -lt 40 ]; do curl -sf -X POST -H 'Content-Type: application/json' -d '{\"maa_endpoint\":\"sharedeus.eus.attest.azure.net\",\"runtime_data\":\"eyJ2IjoxLCJ3YXRjaCI6dHJ1ZX0=\"}' http://localhost:8080/attest/maa > /tmp/t.json && break; i=$((i+1)); sleep 3; done; echo TOKEN_BEGIN; cat /tmp/t.json; echo; echo TOKEN_END"
+          ],
+          "environmentVariables": [],
+          "image": "mcr.microsoft.com/aci/skr:2.12",
+          "resources": {
+            "requests": {
+              "cpu": 0.5,
+              "memoryInGB": 1
+            }
+          }
+        }
+      }
+    ],
+    "osType": "Linux",
+    "restartPolicy": "Never",
+    "sku": "Confidential",
+    "confidentialComputeProperties": {
+      "ccePolicy": ""
+    }
+  }
+}
