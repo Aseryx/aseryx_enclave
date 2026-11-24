@@ -22,7 +22,7 @@ use crate::result::{
 };
 use crate::store::{CipherCache, Fetcher};
 use base64::Engine;
-use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
+use base64::engine::general_purpose::STANDARD;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -68,9 +68,6 @@ pub struct JobInputs {
     pub manifest_cid: String,
     /// The appraisal family.
     pub family: String,
-    /// The usage key that lets the workload run the decrypt action. It decides nothing: the action releases a key only
-    /// for a consent and an attestation that satisfy it.
-    pub lit_usage_key: String,
     /// Threshold jobs: the checks, in the consent's order.
     #[serde(default)]
     pub checks: Vec<CheckSpec>,
@@ -295,24 +292,16 @@ fn verify_consent(
 fn release_key(
     services: &Services<'_>,
     claimed: &Claimed,
-    inputs: &JobInputs,
     verified: &Verified,
 ) -> Result<[u8; 32], ErrorCode> {
-    let params = json!({
-        "operation": "attestedDecrypt",
-        "kind": match inputs.kind { JobKind::Appraisal => "appraisal", JobKind::Threshold => "threshold" },
-        "consent": inputs.consent,
-        "consentSignature": inputs.consent_signature,
+    // The API builds every other parameter of the action from the job's own record; only the sealed key is the container's.
+    let request = json!({
+        "action": "decrypt",
         "token": claimed.token,
-        "runtimeData": URL_SAFE_NO_PAD.encode(claimed.runtime_data.to_bytes()),
-        "tokenId": inputs.token_id,
-        "dataset": inputs.dataset,
+        "runtimeData": STANDARD.encode(claimed.runtime_data.to_bytes()),
         "sealed": verified.manifest.key_wrap,
     });
-    let sealed = read(
-        services.releaser.release(&inputs.lit_usage_key, &params),
-        ErrorCode::KeyDenied,
-    )?;
+    let sealed = read(services.releaser.release(&request), ErrorCode::KeyDenied)?;
     read(
         open_attested_response(&claimed.response_key, &sealed, &verified.digest),
         ErrorCode::KeyDenied,
@@ -484,7 +473,7 @@ fn execute(services: &Services<'_>, claimed: &Claimed) -> Result<(Vec<Value>, Jo
         ErrorCode::FetchFailed,
     )?;
     let verified = verify_consent(services, claimed, &inputs)?;
-    let mut key = release_key(services, claimed, &inputs, &verified)?;
+    let mut key = release_key(services, claimed, &verified)?;
     let outcome = (|| {
         read(
             services.cache.fill(
