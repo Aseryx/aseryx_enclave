@@ -6,7 +6,9 @@ publish.workspace = true
 description = "The workload that runs inside the attested container"
 
 [dependencies]
+aes-gcm = "0.11.1"
 base64 = "0.23.1"
+flate2 = "1.1.11"
 getrandom = "0.4.3"
 hex = "0.4.3"
 hpke = { version = "0.15.1", features = ["x25519"] }
