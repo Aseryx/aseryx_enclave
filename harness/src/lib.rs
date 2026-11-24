@@ -6,6 +6,7 @@
 
 pub mod api;
 pub mod attest;
+pub mod chain;
 pub mod claim;
 pub mod consent;
 pub mod engine;
