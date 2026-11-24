@@ -1,6 +1,8 @@
 //! Threshold counts through the engine host: several checks share the passes over the encrypted chunks and give what
 //! each check gives on its own. The engine tests' environment variables apply (`make test` sets them).
 
+mod common;
+
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
 use aseryx_enclave_harness::consent::Bytes32;
@@ -10,6 +12,7 @@ use aseryx_enclave_harness::pipeline::run_passes_many;
 use aseryx_enclave_harness::store::{CipherCache, Fetcher, StoreError};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
+use common::unique_dir;
 use flate2::Compression;
 use flate2::write::GzEncoder;
 use serde_json::{Value, json};
@@ -71,14 +74,7 @@ fn encrypted(plain: &[u8], chunk_size: usize) -> (Manifest, CipherCache, PathBuf
     })
     .to_string();
     let manifest = Manifest::parse(&text).expect("manifest");
-    let dir = std::env::temp_dir().join(format!(
-        "enclave-threshold-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos()
-    ));
+    let dir = unique_dir("threshold");
     let cache = CipherCache::new(&dir).expect("cache");
     cache
         .fill(&manifest.chunks, &Blobs(blobs), 3)

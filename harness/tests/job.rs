@@ -4,8 +4,11 @@
 
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
+mod common;
+
 use aseryx_enclave_harness::attest::{AttestError, Attestor};
 use aseryx_enclave_harness::chain::{ChainError, ChainReader, DatasetRecord};
+use aseryx_enclave_harness::check::parse_check;
 use aseryx_enclave_harness::claim::{ClaimError, JobSource};
 use aseryx_enclave_harness::consent::{
     Address, AppraisalJob, Bytes32, Domain, ThresholdJob, Uint256, result_digest,
@@ -24,6 +27,7 @@ use aseryx_enclave_harness::runtime_data::RuntimeData;
 use aseryx_enclave_harness::store::{CipherCache, Fetcher, StoreError};
 use base64::Engine;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
+use common::unique_dir;
 use flate2::Compression;
 use flate2::write::GzEncoder;
 use hpke::aead::AesGcm256;
@@ -284,14 +288,7 @@ fn run(
         record: world.record.clone(),
     };
     tweak(&mut t);
-    let dir = std::env::temp_dir().join(format!(
-        "enclave-job-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos()
-    ));
+    let dir = unique_dir("job");
     let cache = CipherCache::new(&dir).expect("cache");
     let engine = engine();
     let chain = Fixed(t.record);
@@ -427,16 +424,15 @@ fn an_appraisal_job_posts_a_signed_result() {
     );
 }
 
-fn threshold_inputs(
-    w: &World,
-    label_hash: &str,
-    envelope: &str,
-    checks: Vec<(Bytes32, String)>,
-) -> JobInputs {
+fn threshold_inputs(w: &World, label_hash: &str, envelope: &str, texts: Vec<String>) -> JobInputs {
+    let checks: Vec<_> = texts
+        .into_iter()
+        .map(|text| (parse_check(&text).expect("check"), text))
+        .collect();
     let consent = json!({
         "tokenId": "7", "dataset": DATASET, "manifestCid": MANIFEST_CID, "plaintextHash": w.record.plaintext_hash.to_string(),
         "family": "tabular", "rulesVersion": "v12.0", "labelHash": label_hash,
-        "checkHashes": checks.iter().map(|(h, _)| h.to_string()).collect::<Vec<_>>(),
+        "checkHashes": checks.iter().map(|(p, _)| p.hash.to_string()).collect::<Vec<_>>(),
         "workloadIdentity": WORKLOAD, "jobId": JOB,
         "minBootloaderSvn": 10, "minTeeSvn": 0, "minSnpSvn": 23, "minMicrocodeSvn": 84, "expiresAt": "1795556000",
     });
@@ -451,15 +447,23 @@ fn threshold_inputs(
         lit_usage_key: "usage-key".to_owned(),
         checks: checks
             .into_iter()
-            .map(|(check_hash, check_json)| CheckSpec {
-                check_hash,
+            .map(|(parsed, check_json)| CheckSpec {
+                check_hash: parsed.hash,
                 check_json,
-                conditions: 1,
-                allowed_failure_permille: 100,
+                conditions: parsed.conditions,
+                allowed_failure_permille: parsed.allowed_failure_permille,
             })
             .collect(),
         encrypted_label: Some(envelope.to_owned()),
     }
+}
+
+fn wide_text() -> String {
+    json!({"conditions": [{"column": "amount", "min": "10", "max": "60"}], "allowed_failure_permille": 100}).to_string()
+}
+
+fn narrow_text() -> String {
+    json!({"conditions": [{"column": "id", "min": "1000", "max": "1002"}], "allowed_failure_permille": 100}).to_string()
 }
 
 fn threshold_world() -> (World, JobInputs) {
@@ -483,14 +487,8 @@ fn threshold_world() -> (World, JobInputs) {
     let label = serde_json::to_string(&output["label"]).expect("label");
     let label_hash = module.label_hash(&label).expect("hash");
     let envelope = seal_label(&label, &KEY).expect("seal");
-    let wide = json!({"conditions": [{"column": "amount", "min": "10", "max": "60"}], "allowed_failure_permille": 100}).to_string();
-    let narrow = json!({"conditions": [{"column": "id", "min": "1000", "max": "1002"}], "allowed_failure_permille": 100}).to_string();
-    let inputs = threshold_inputs(
-        &w,
-        &label_hash,
-        &envelope,
-        vec![(Bytes32([0xa; 32]), wide), (Bytes32([0xb; 32]), narrow)],
-    );
+    let (wide, narrow) = (wide_text(), narrow_text());
+    let inputs = threshold_inputs(&w, &label_hash, &envelope, vec![wide, narrow]);
     (w, inputs)
 }
 
@@ -509,7 +507,13 @@ fn a_threshold_job_posts_a_signed_result_per_check() {
     assert_eq!(
         (answered["checkHash"].as_str(), answered["status"].as_str()),
         (
-            Some(Bytes32([0xa; 32]).to_string().as_str()),
+            Some(
+                parse_check(&wide_text())
+                    .expect("check")
+                    .hash
+                    .to_string()
+                    .as_str()
+            ),
             Some("answered")
         )
     );
@@ -522,7 +526,13 @@ fn a_threshold_job_posts_a_signed_result_per_check() {
             refused["reason"].as_str()
         ),
         (
-            Some(Bytes32([0xb; 32]).to_string().as_str()),
+            Some(
+                parse_check(&narrow_text())
+                    .expect("check")
+                    .hash
+                    .to_string()
+                    .as_str()
+            ),
             Some("refused"),
             Some("small_group")
         )
@@ -703,4 +713,47 @@ fn checks_in_another_order_than_the_consent_are_refused() {
     inputs.checks.reverse();
     assert_eq!(run(&w, Ok(inputs), |_| {}), Err(ErrorCode::KeyDenied));
     assert!(w.released.lock().expect("lock").is_empty());
+}
+
+/// A check text that does not hash to the consent's hash, or counts that are not the check's own, is refused before a key
+/// is released.
+#[test]
+fn checks_that_are_not_the_signed_checks_are_refused() {
+    type Mutation = Box<dyn Fn(&mut JobInputs)>;
+    let mutations: Vec<(&str, Mutation)> = vec![
+        (
+            "another check under the same hash",
+            Box::new(|i| i.checks[0].check_json = narrow_text()),
+        ),
+        (
+            "another hash for the same check",
+            Box::new(|i| i.checks[0].check_hash = Bytes32([0x42; 32])),
+        ),
+        (
+            "another number of conditions",
+            Box::new(|i| i.checks[0].conditions = 2),
+        ),
+        (
+            "another allowed failure",
+            Box::new(|i| i.checks[0].allowed_failure_permille = 200),
+        ),
+        (
+            "a check that is not a check",
+            Box::new(|i| i.checks[0].check_json = "{}".to_owned()),
+        ),
+        ("a check dropped", Box::new(|i| drop(i.checks.pop()))),
+    ];
+    for (name, mutate) in mutations {
+        let (w, mut inputs) = threshold_world();
+        mutate(&mut inputs);
+        assert_eq!(
+            run(&w, Ok(inputs), |_| {}),
+            Err(ErrorCode::KeyDenied),
+            "{name}"
+        );
+        assert!(
+            w.released.lock().expect("lock").is_empty(),
+            "{name}: a key was requested"
+        );
+    }
 }

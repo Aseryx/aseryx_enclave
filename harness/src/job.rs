@@ -7,6 +7,7 @@
 
 use crate::attest::Attestor;
 use crate::chain::ChainReader;
+use crate::check::parse_check;
 use crate::claim::{Claimed, JobSource, claim_job};
 use crate::consent::{AppraisalJob, Bytes32, Domain, ThresholdJob, Uint256};
 use crate::engine::{EngineModule, Run};
@@ -159,6 +160,25 @@ struct Verified {
     label_hash: Option<String>,
 }
 
+/// The checks the API listed are the checks the owner signed, in the owner's order: each check's text hashes to the
+/// hash in the consent, and the counts the API gives with it are the check's own.
+fn check_specs(inputs: &JobInputs, signed: &[Bytes32]) -> Result<(), ErrorCode> {
+    if inputs.checks.len() != signed.len() {
+        return Err(ErrorCode::KeyDenied);
+    }
+    for (spec, hash) in inputs.checks.iter().zip(signed) {
+        let parsed = read(parse_check(&spec.check_json), ErrorCode::KeyDenied)?;
+        let same_check = parsed.hash == *hash && spec.check_hash == *hash;
+        if !same_check
+            || parsed.conditions != spec.conditions
+            || parsed.allowed_failure_permille != spec.allowed_failure_permille
+        {
+            return Err(ErrorCode::KeyDenied);
+        }
+    }
+    Ok(())
+}
+
 /// Parses the consent for the job's kind and checks it against the claim, the request and the registry.
 fn verify_consent(
     services: &Services<'_>,
@@ -226,15 +246,8 @@ fn verify_consent(
     {
         return Err(ErrorCode::KeyDenied);
     }
-    if inputs.kind == JobKind::Threshold
-        && (inputs.checks.len() != checks.len()
-            || inputs
-                .checks
-                .iter()
-                .zip(&checks)
-                .any(|(spec, hash)| spec.check_hash != *hash))
-    {
-        return Err(ErrorCode::KeyDenied);
+    if inputs.kind == JobKind::Threshold {
+        check_specs(inputs, &checks)?;
     }
     let record = read(
         services.chain.get_dataset(&token_id, dataset.as_str()),

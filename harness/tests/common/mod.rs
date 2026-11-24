@@ -93,3 +93,17 @@ where
     });
     (url, handle)
 }
+
+/// A new empty directory under the system's temporary directory, named for the test and unique within and across
+/// processes (a counter, not the clock, whose resolution lets two tests collide).
+pub fn unique_dir(name: &str) -> std::path::PathBuf {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let dir = std::env::temp_dir().join(format!(
+        "enclave-{name}-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::SeqCst)
+    ));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    dir
+}

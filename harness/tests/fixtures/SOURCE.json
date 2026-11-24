@@ -29,6 +29,12 @@
       "source": "the manifest QmNnaigry3WZb1FV97KgUzQnwmwqFX9hZexYi5AXd1LpnN, fetched from gateway.pinata.cloud",
       "sourceCommit": "none: pinned data",
       "sha256": "f3c8d368b94bfbf3d9cab2c24770789fae436ae2e66989e47168d85f12133dcc"
+    },
+    {
+      "file": "threshold-vectors.json",
+      "source": "aseryx_application client/src/shared/threshold/__tests__/threshold_vectors.json, the vectors the app, the API and the SDK share",
+      "sourceCommit": "3e43c8b4",
+      "sha256": "c795fa26c93dbee2b4d8dcabbad80e7b93690068295714b583eb070091c670ed"
     }
   ]
 }
