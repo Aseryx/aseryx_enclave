@@ -7,7 +7,7 @@ use aseryx_enclave_harness::consent::Bytes32;
 use aseryx_enclave_harness::keys::ResponseKey;
 use aseryx_enclave_harness::label::{LabelError, open_label, seal_label, seal_label_with_iv};
 use aseryx_enclave_harness::lit::{
-    ChipotleReleaser, KeyReleaser, LitError, SealedResponse, open_attested_response,
+    ApiRelay, KeyReleaser, LitError, SealedResponse, open_attested_response,
 };
 use common::serve_many;
 use serde_json::{Value, json};
@@ -144,63 +144,47 @@ fn sealed_json() -> Value {
     vectors()["attestedResponse"]["sealed"].clone()
 }
 
-/// The request names the action code and the parameters and carries the usage key; the sealed answer comes back.
+/// The request carries token 2, the runtime data and the sealed key and nothing of Lit; the sealed answer comes back.
 #[test]
-fn the_request_carries_the_code_the_parameters_and_the_usage_key() {
-    let answer =
-        json!({"has_error": false, "response": {"ok": true, "sealed": sealed_json()}}).to_string();
+fn the_relay_request_carries_the_token_the_runtime_data_and_the_sealed_key() {
+    let answer = json!({"ok": true, "sealed": sealed_json()}).to_string();
     let (url, seen) = serve_many(1, move |_| (200, answer.clone()));
-    let params = json!({"operation": "attestedDecrypt", "kind": "appraisal"});
-    let sealed = ChipotleReleaser::new(&url, "async function main(){}")
-        .release("usage-key-123", &params)
-        .expect("sealed");
+    let request = json!({"action": "decrypt", "token": "a.b.c", "runtimeData": "AAAA", "sealed": {"format": "x"}});
+    let sealed = ApiRelay::new(&url).release(&request).expect("sealed");
     assert_eq!(
         serde_json::to_value(&sealed.enc).expect("enc"),
         sealed_json()["enc"]
     );
     let body: Value = serde_json::from_str(&seen.join().expect("server")[0]).expect("json");
-    assert_eq!(body["code"], "async function main(){}");
-    assert_eq!(body["js_params"], params);
+    assert_eq!(body, request);
 }
 
-/// A refusal is a denial; everything else that is not a sealed key is a transport failure.
+/// The API or the action refusing is a denial; everything else that is not a sealed key is a failure.
 #[test]
 fn a_refusal_is_a_denial_and_anything_else_is_a_failure() {
-    let denied = json!({"has_error": false, "response": {"ok": false, "error": "access_denied"}})
-        .to_string();
+    let denied = json!({"ok": false, "error": "access_denied"}).to_string();
     let cases: Vec<(u16, String, LitError)> = vec![
         (200, denied, LitError::Denied),
         (
-            200,
-            json!({"has_error": true, "response": {"ok": false}}).to_string(),
-            LitError::Transport,
+            403,
+            json!({"error": "claim_refused"}).to_string(),
+            LitError::Denied,
         ),
+        (200, json!({"ok": true}).to_string(), LitError::Transport),
         (
             200,
-            json!({"has_error": false, "response": {"ok": true}}).to_string(),
+            json!({"ok": false, "sealed": sealed_json()}).to_string(),
             LitError::Transport,
         ),
-        (
-            200,
-            json!({"has_error": false, "response": {"ok": false, "sealed": sealed_json()}})
-                .to_string(),
-            LitError::Transport,
-        ),
-        (
-            200,
-            json!({"has_error": false}).to_string(),
-            LitError::Transport,
-        ),
+        (200, "{}".to_owned(), LitError::Transport),
         (200, "not json".to_owned(), LitError::Transport),
-        (402, "{}".to_owned(), LitError::Transport),
+        (429, "{}".to_owned(), LitError::Transport),
         (500, String::new(), LitError::Transport),
     ];
     for (status, body, expected) in cases {
         let (url, _server) = serve_many(1, move |_| (status, body.clone()));
         assert_eq!(
-            ChipotleReleaser::new(&url, "c")
-                .release("k", &json!({}))
-                .err(),
+            ApiRelay::new(&url).release(&json!({})).err(),
             Some(expected),
             "{status}"
         );

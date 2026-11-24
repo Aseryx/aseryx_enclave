@@ -173,23 +173,37 @@ impl JobApi for Api<'_> {
     }
 }
 
-/// A Lit stub that seals the dataset key, as the action does, to the response key named in the runtime data it is given.
+/// A relay stub that seals the dataset key, as the action does, to the response key named in the runtime data it is
+/// given. It knows the job's consent as the API does, and refuses a request that carries anything but the three fields.
 struct Lit<'a> {
     world: &'a World,
     outcome: Result<(), LitError>,
+    consent: Option<(Value, &'static str)>,
 }
 impl KeyReleaser for Lit<'_> {
-    fn release(&self, usage_key: &str, params: &Value) -> Result<SealedResponse, LitError> {
-        assert_eq!(usage_key, "usage-key");
+    fn release(&self, request: &Value) -> Result<SealedResponse, LitError> {
+        let mut names: Vec<&str> = request
+            .as_object()
+            .expect("object")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        names.sort_unstable();
+        assert_eq!(
+            names,
+            ["action", "runtimeData", "sealed", "token"],
+            "the workload sends the sealed key and the proof, nothing else"
+        );
+        assert_eq!(request["action"], "decrypt");
         self.world
             .released
             .lock()
             .expect("lock")
-            .push(params.clone());
+            .push(request.clone());
         self.outcome?;
         let runtime: Value = serde_json::from_slice(
-            &URL_SAFE_NO_PAD
-                .decode(params["runtimeData"].as_str().expect("runtime"))
+            &STANDARD
+                .decode(request["runtimeData"].as_str().expect("runtime"))
                 .expect("b64"),
         )
         .expect("json");
@@ -197,7 +211,8 @@ impl KeyReleaser for Lit<'_> {
             &hex::decode(runtime["responsePublicKey"].as_str().expect("key")).expect("hex"),
         )
         .expect("key");
-        let digest = digest_of(&params["consent"], params["kind"].as_str().expect("kind"));
+        let (consent, kind) = self.consent.as_ref().expect("a job with a consent");
+        let digest = digest_of(consent, kind);
         let info =
             format!(r#"{{"consent":"{digest}","domain":"aseryx/attested-key-response/v1"}}"#);
         let (encapped, ct) = hpke::single_shot_seal::<AesGcm256, HkdfSha256, X25519HkdfSha256>(
@@ -269,7 +284,6 @@ fn appraisal_inputs(world: &World) -> JobInputs {
         dataset: DATASET.to_owned(),
         manifest_cid: MANIFEST_CID.to_owned(),
         family: "tabular".to_owned(),
-        lit_usage_key: "usage-key".to_owned(),
         checks: Vec::new(),
         encrypted_label: None,
     }
@@ -293,6 +307,13 @@ fn run(
     let engine = engine();
     let chain = Fixed(t.record);
     let fetcher = Blobs(&world.blobs);
+    let relay_consent = inputs.as_ref().ok().map(|i| {
+        let kind = match i.kind {
+            JobKind::Appraisal => "appraisal",
+            JobKind::Threshold => "threshold",
+        };
+        (i.consent.clone(), kind)
+    });
     let (source, api, lit, prover) = (
         Assigns(t.claim),
         Api {
@@ -303,6 +324,7 @@ fn run(
         Lit {
             world,
             outcome: t.lit,
+            consent: relay_consent,
         },
         Proves {
             world,
@@ -408,11 +430,10 @@ fn an_appraisal_job_posts_a_signed_result() {
     assert_eq!(released.len(), 1);
     assert_eq!(
         (
-            released[0]["operation"].as_str(),
-            released[0]["kind"].as_str(),
-            released[0]["tokenId"].as_str()
+            released[0]["action"].as_str(),
+            released[0]["token"].as_str()
         ),
-        (Some("attestedDecrypt"), Some("appraisal"), Some("7"))
+        (Some("decrypt"), Some("aaa.bbb.ccc"))
     );
     assert_eq!(
         released[0]["sealed"],
@@ -444,7 +465,6 @@ fn threshold_inputs(w: &World, label_hash: &str, envelope: &str, texts: Vec<Stri
         dataset: DATASET.to_owned(),
         manifest_cid: MANIFEST_CID.to_owned(),
         family: "tabular".to_owned(),
-        lit_usage_key: "usage-key".to_owned(),
         checks: checks
             .into_iter()
             .map(|(parsed, check_json)| CheckSpec {

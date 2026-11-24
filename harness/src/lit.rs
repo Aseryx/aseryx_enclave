@@ -13,7 +13,7 @@ use hpke::kdf::HkdfSha256;
 use hpke::kem::X25519HkdfSha256;
 use hpke::{Deserializable, Kem, OpModeR};
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::time::Duration;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
@@ -42,14 +42,14 @@ pub struct SealedResponse {
     pub ciphertext: String,
 }
 
-/// Something that can run the decrypt action with an `attestedDecrypt` request.
+/// Something that can have the decrypt action release the dataset key to this workload.
 pub trait KeyReleaser {
-    /// Runs the action with `params`, using the usage key `usage_key`, and returns the sealed key.
+    /// Sends `request`, which carries token 2, the runtime data and the sealed key, and returns the sealed answer.
     ///
     /// # Errors
     ///
-    /// [`LitError::Denied`] when the action refuses and [`LitError::Transport`] for anything else that goes wrong.
-    fn release(&self, usage_key: &str, params: &Value) -> Result<SealedResponse, LitError>;
+    /// [`LitError::Denied`] when the API or the action refuses and [`LitError::Transport`] for anything else that goes wrong.
+    fn release(&self, request: &Value) -> Result<SealedResponse, LitError>;
 }
 
 /// Opens a sealed key with the workload's response key. `consent_digest` is the digest of the consent that released it,
@@ -85,31 +85,26 @@ pub fn open_attested_response(
 }
 
 #[derive(Deserialize)]
-struct ActionReply {
-    #[serde(default)]
-    has_error: bool,
-    response: Option<ActionOutput>,
-}
-
-#[derive(Deserialize)]
 struct ActionOutput {
     ok: bool,
     sealed: Option<SealedResponse>,
 }
 
-/// Lit Chipotle, running the decrypt action's source with a usage key.
-pub struct ChipotleReleaser {
+/// The API's relay to the decrypt action.
+///
+/// The workload holds no Lit credential. It posts token 2, the runtime data and the sealed key to the API's
+/// `attested-appraisal` function, which checks them as for any call of the job, builds every other parameter of the action
+/// from the job's own record, runs the pinned action, and returns the action's answer unchanged. The answer is sealed to
+/// this workload's response key, which the API never holds.
+pub struct ApiRelay {
     url: String,
-    code: String,
     agent: ureq::Agent,
 }
 
-impl ChipotleReleaser {
-    /// A client of the Chipotle API at `url` (for example `https://api.chipotle.litprotocol.com/core/v1/lit_action`) that
-    /// runs the action `code`. Each call brings its own usage key, which lets its holder run the action; the action
-    /// itself decides whether a key is released.
+impl ApiRelay {
+    /// A client of the relay at `url`, the `attested-appraisal` function.
     #[must_use]
-    pub fn new(url: &str, code: &str) -> Self {
+    pub fn new(url: &str) -> Self {
         let agent = ureq::Agent::config_builder()
             .timeout_global(Some(REQUEST_TIMEOUT))
             .http_status_as_error(false)
@@ -117,32 +112,27 @@ impl ChipotleReleaser {
             .into();
         Self {
             url: url.to_owned(),
-            code: code.to_owned(),
             agent,
         }
     }
 }
 
-impl KeyReleaser for ChipotleReleaser {
-    fn release(&self, usage_key: &str, params: &Value) -> Result<SealedResponse, LitError> {
+impl KeyReleaser for ApiRelay {
+    fn release(&self, request: &Value) -> Result<SealedResponse, LitError> {
         let mut response = self
             .agent
             .post(&self.url)
-            .header("X-Api-Key", usage_key)
-            .header("X-Privacy-Mode", "true")
-            .send_json(json!({"code": self.code, "js_params": params}))
+            .send_json(request)
             .map_err(|_| LitError::Transport)?;
-        if response.status().as_u16() != 200 {
-            return Err(LitError::Transport);
+        match response.status().as_u16() {
+            200 => {}
+            403 => return Err(LitError::Denied),
+            _ => return Err(LitError::Transport),
         }
-        let reply: ActionReply = response
+        let output: ActionOutput = response
             .body_mut()
             .read_json()
             .map_err(|_| LitError::Transport)?;
-        let output = reply
-            .response
-            .filter(|_| !reply.has_error)
-            .ok_or(LitError::Transport)?;
         match (output.ok, output.sealed) {
             (true, Some(sealed)) => Ok(sealed),
             (false, None) => Err(LitError::Denied),
