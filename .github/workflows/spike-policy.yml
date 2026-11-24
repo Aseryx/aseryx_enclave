@@ -30,7 +30,7 @@ jobs:
           for n in a b; do
             cp spike/0.1/template.json "out/template-$n.json"
             az confcom acipolicygen --template-file "out/template-$n.json" \
-              --debug-mode --enable-stdio --yes
+              --debug-mode --enable-stdio -y
             jq -r '.resources[0].properties.confidentialComputeProperties.ccePolicy' \
               "out/template-$n.json" | base64 -d > "out/policy-$n.rego"
             sha256sum "out/policy-$n.rego" | tee "out/policy-$n.sha256"
