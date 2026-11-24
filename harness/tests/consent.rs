@@ -43,7 +43,19 @@ fn entry(type_name: &str) -> (Value, String) {
 fn the_vendored_fixtures_match_their_recorded_hashes() {
     let source: Value = serde_json::from_str(SOURCE).expect("SOURCE.json");
     let files = source["files"].as_array().expect("files");
-    assert_eq!(files.len(), 6);
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let mut on_disk: Vec<String> = std::fs::read_dir(&dir)
+        .expect("fixtures")
+        .map(|e| e.expect("entry").file_name().to_string_lossy().into_owned())
+        .filter(|name| name != "SOURCE.json")
+        .collect();
+    let mut listed: Vec<String> = files
+        .iter()
+        .map(|e| e["file"].as_str().expect("file").to_owned())
+        .collect();
+    on_disk.sort();
+    listed.sort();
+    assert_eq!(on_disk, listed, "every fixture is recorded in SOURCE.json");
     for entry in files {
         let name = entry["file"].as_str().expect("file");
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
