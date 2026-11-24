@@ -1,0 +1,86 @@
+{
+  "domain": {
+    "chainId": 43113,
+    "verifyingContract": "0x5Db410D07931Efc7CF1d01545e773992Ab1988b2"
+  },
+  "vectors": [
+    {
+      "typeName": "AppraisalJob",
+      "consent": {
+        "tokenId": "2",
+        "dataset": "966db81ea04a7de6a40ee95d06d5644f",
+        "manifestCid": "QmXz61oCEc9zcBRPhsDWpU4z2gtaqYXk1g5Acx1Mpyu2fC",
+        "plaintextHash": "0x3fb879700d5528f2e21d654ba4cc6d149648186704ff6b07c0f6673fbc41b49f",
+        "family": "tabular",
+        "rulesVersion": "v12.0",
+        "workloadIdentity": "0xf6a7a4f67b3edf6d9d7c7098f9b514f53f263be0a4e32fbac2ee585d6972f20f",
+        "jobId": "0xd828621b01841c9a5630937da5ffb06cf43417178bee1149d90b84ca148408fa",
+        "expiresAt": "1795556000"
+      },
+      "digest": "0xcae0f45d6f748d5b2cb55d4ac2d5b180f9d42431d74b63cbbf50ec9a8ff88ef4"
+    },
+    {
+      "typeName": "ThresholdJob",
+      "consent": {
+        "tokenId": "2",
+        "dataset": "966db81ea04a7de6a40ee95d06d5644f",
+        "manifestCid": "QmXz61oCEc9zcBRPhsDWpU4z2gtaqYXk1g5Acx1Mpyu2fC",
+        "plaintextHash": "0x3fb879700d5528f2e21d654ba4cc6d149648186704ff6b07c0f6673fbc41b49f",
+        "family": "tabular",
+        "rulesVersion": "v12.0",
+        "labelHash": "21888242871839275222246405745257275088548364400416034343698204186575808495616",
+        "checkHashes": [
+          "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        ],
+        "workloadIdentity": "0xf6a7a4f67b3edf6d9d7c7098f9b514f53f263be0a4e32fbac2ee585d6972f20f",
+        "jobId": "0xd828621b01841c9a5630937da5ffb06cf43417178bee1149d90b84ca148408fa",
+        "expiresAt": "1795556000"
+      },
+      "digest": "0x507c822e99d66bbc0b3b6c86afc4374bfff975b345f0448635ed46da91ad0e0b"
+    },
+    {
+      "typeName": "DisputeJob",
+      "consent": {
+        "disputeId": "41",
+        "tokenId": "2",
+        "dataset": "966db81ea04a7de6a40ee95d06d5644f",
+        "buyer": "0x96af4089a5be5e29efb631fee00ff0b1005985bb",
+        "evidenceHash": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "family": "tabular",
+        "rulesVersion": "v12.0",
+        "workloadIdentity": "0xf6a7a4f67b3edf6d9d7c7098f9b514f53f263be0a4e32fbac2ee585d6972f20f",
+        "jobId": "0xd828621b01841c9a5630937da5ffb06cf43417178bee1149d90b84ca148408fa",
+        "expiresAt": "1795556000"
+      },
+      "digest": "0xa069a553ae317e6f54c91ff32608273b1fed869c426545e451e16c3096006ce6"
+    },
+    {
+      "typeName": "ThresholdAnswerApproval",
+      "consent": {
+        "jobId": "0xd828621b01841c9a5630937da5ffb06cf43417178bee1149d90b84ca148408fa",
+        "checkHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "resultHash": "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "approved": true
+      },
+      "digest": "0x8b2af2e4f9adce156e9a1734fc687df888f827553f6828be3d261f86fe1b41e9"
+    }
+  ],
+  "result": {
+    "value": {
+      "jobId": "0xd828621b01841c9a5630937da5ffb06cf43417178bee1149d90b84ca148408fa",
+      "kind": "appraisal",
+      "family": "tabular",
+      "rulesVersion": "v12.0",
+      "workloadIdentity": "0xf6a7a4f67b3edf6d9d7c7098f9b514f53f263be0a4e32fbac2ee585d6972f20f",
+      "plaintextHash": "0x3fb879700d5528f2e21d654ba4cc6d149648186704ff6b07c0f6673fbc41b49f",
+      "publicSignals": [
+        "1",
+        "2",
+        "3"
+      ]
+    },
+    "canonical": "{\"family\":\"tabular\",\"jobId\":\"0xd828621b01841c9a5630937da5ffb06cf43417178bee1149d90b84ca148408fa\",\"kind\":\"appraisal\",\"plaintextHash\":\"0x3fb879700d5528f2e21d654ba4cc6d149648186704ff6b07c0f6673fbc41b49f\",\"publicSignals\":[\"1\",\"2\",\"3\"],\"rulesVersion\":\"v12.0\",\"workloadIdentity\":\"0xf6a7a4f67b3edf6d9d7c7098f9b514f53f263be0a4e32fbac2ee585d6972f20f\"}",
+    "digest": "0x79e53714e403d751ada5026f268af843d5abf89087d080d8eedc6a35ddc31190"
+  }
+}
