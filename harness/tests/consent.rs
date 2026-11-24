@@ -38,14 +38,24 @@ fn entry(type_name: &str) -> (Value, String) {
     )
 }
 
-/// The vendored vector is the file `SOURCE.json` names, so a hand edit is caught.
+/// The vendored fixtures are the files `SOURCE.json` names, so a hand edit is caught.
 #[test]
-fn the_vendored_vector_matches_its_recorded_hash() {
+fn the_vendored_fixtures_match_their_recorded_hashes() {
     let source: Value = serde_json::from_str(SOURCE).expect("SOURCE.json");
-    assert_eq!(
-        hex::encode(Sha256::digest(VECTOR.as_bytes())),
-        source["sha256"].as_str().expect("sha256")
-    );
+    let files = source["files"].as_array().expect("files");
+    assert_eq!(files.len(), 2);
+    for entry in files {
+        let name = entry["file"].as_str().expect("file");
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures")
+            .join(name);
+        let content = std::fs::read(path).expect("fixture");
+        assert_eq!(
+            hex::encode(Sha256::digest(&content)),
+            entry["sha256"].as_str().expect("sha256"),
+            "{name}"
+        );
+    }
 }
 
 /// Every typed-data digest equals the one ethers computed.

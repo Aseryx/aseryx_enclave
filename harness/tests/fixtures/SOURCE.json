@@ -1,6 +1,16 @@
 {
-  "file": "consent-vector.json",
-  "source": "aseryx_digital_key lit-actions/test/consent-vector.json",
-  "sourceCommit": "c9b9133",
-  "sha256": "6cb216a4af5bbf9b63d829fc68a00257e05c2a8af58e644d4154eac61c5a0ed7"
+  "files": [
+    {
+      "file": "consent-vector.json",
+      "source": "aseryx_digital_key lit-actions/test/consent-vector.json, written by lit-actions/test/make-consent-vector.mjs",
+      "sourceCommit": "c9b9133",
+      "sha256": "6cb216a4af5bbf9b63d829fc68a00257e05c2a8af58e644d4154eac61c5a0ed7"
+    },
+    {
+      "file": "result-signature-vector.json",
+      "source": "ethers 6 SigningKey over the secret 0x11 repeated 32 times (a test key) and the result digest of consent-vector.json: new SigningKey(secret).sign(digest).serialized and SigningKey.computePublicKey(secret, true)",
+      "sourceCommit": "c9b9133",
+      "sha256": "1f13a30f7013b901387f43bbe3008898ab019597075fc60b9890e3c2259d567e"
+    }
+  ]
 }
