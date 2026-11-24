@@ -3,8 +3,8 @@
     {
       "file": "consent-vector.json",
       "source": "aseryx_digital_key lit-actions/test/consent-vector.json, written by lit-actions/test/make-consent-vector.mjs",
-      "sourceCommit": "c9b9133",
-      "sha256": "6cb216a4af5bbf9b63d829fc68a00257e05c2a8af58e644d4154eac61c5a0ed7"
+      "sourceCommit": "a81d55c",
+      "sha256": "cf78c3eda41bcd273271e55ea34aa327857ae321ed92824dc564ef316741e658"
     },
     {
       "file": "result-signature-vector.json",
