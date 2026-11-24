@@ -1,6 +1,8 @@
 //! A dataset read through encrypted chunks appraises exactly like the plaintext, and every way the chunks can be wrong is
 //! caught. The engine tests' environment variables apply (`make test` sets them).
 
+mod common;
+
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
 use aseryx_enclave_harness::consent::Bytes32;
@@ -11,6 +13,7 @@ use aseryx_enclave_harness::pipeline::{PipelineError, run_passes};
 use aseryx_enclave_harness::store::{CipherCache, Fetcher, StoreError};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
+use common::unique_dir;
 use flate2::Compression;
 use flate2::write::GzEncoder;
 use serde_json::json;
@@ -48,20 +51,7 @@ fn golden() -> Vec<u8> {
 }
 
 fn temp_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "enclave-{name}-{}-{}",
-        std::process::id(),
-        rand_suffix()
-    ));
-    std::fs::create_dir_all(&dir).expect("temp dir");
-    dir
-}
-
-fn rand_suffix() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("clock")
-        .as_nanos()
+    unique_dir(name)
 }
 
 /// Encrypts `plain` the way the web application does: chunks of `chunk_size`, gzip, AES-256-GCM with a fresh IV each.

@@ -1,0 +1,651 @@
+[
+  {
+    "name": "one numeric condition with a minimum",
+    "check": {
+      "conditions": [
+        {
+          "column": "age",
+          "min": "18"
+        }
+      ],
+      "allowed_failure_permille": 200
+    },
+    "canonical": "{\"allowed_failure_permille\":200,\"conditions\":[{\"column\":\"age\",\"min\":\"18\"}]}",
+    "check_hash": "153519927208519790827105079253903703585679001663085250133256902826562879699"
+  },
+  {
+    "name": "one numeric condition with a maximum",
+    "check": {
+      "conditions": [
+        {
+          "column": "income",
+          "max": "1000.50"
+        }
+      ],
+      "allowed_failure_permille": 0
+    },
+    "canonical": "{\"allowed_failure_permille\":0,\"conditions\":[{\"column\":\"income\",\"max\":\"1000.50\"}]}",
+    "check_hash": "246247068926403110148612616370245984982483523836069615475544132063749246769"
+  },
+  {
+    "name": "a numeric range with negative bounds",
+    "check": {
+      "conditions": [
+        {
+          "column": "balance",
+          "min": "-12.5",
+          "max": "-0.25"
+        }
+      ],
+      "allowed_failure_permille": 900
+    },
+    "canonical": "{\"allowed_failure_permille\":900,\"conditions\":[{\"column\":\"balance\",\"max\":\"-0.25\",\"min\":\"-12.5\"}]}",
+    "check_hash": "426165532220521485339242033116472640973069395620448978510804226769457983636"
+  },
+  {
+    "name": "a date range",
+    "check": {
+      "conditions": [
+        {
+          "column": "born",
+          "min": "1990-01-01",
+          "max": "1999-12-31"
+        }
+      ],
+      "allowed_failure_permille": 100
+    },
+    "canonical": "{\"allowed_failure_permille\":100,\"conditions\":[{\"column\":\"born\",\"max\":\"1999-12-31\",\"min\":\"1990-01-01\"}]}",
+    "check_hash": "437301175750003320214431785141858695982238241922113874842645902771554962113"
+  },
+  {
+    "name": "conditions are sorted by column",
+    "check": {
+      "conditions": [
+        {
+          "column": "zeta",
+          "min": "1"
+        },
+        {
+          "column": "alpha",
+          "max": "9"
+        },
+        {
+          "column": "mid",
+          "min": "2",
+          "max": "3"
+        }
+      ],
+      "allowed_failure_permille": 300
+    },
+    "canonical": "{\"allowed_failure_permille\":300,\"conditions\":[{\"column\":\"alpha\",\"max\":\"9\"},{\"column\":\"mid\",\"max\":\"3\",\"min\":\"2\"},{\"column\":\"zeta\",\"min\":\"1\"}]}",
+    "check_hash": "64000591034530367325267909799353563342590336570926696138570482576568601639"
+  },
+  {
+    "name": "the order of the input conditions does not change the hash",
+    "check": {
+      "conditions": [
+        {
+          "column": "mid",
+          "min": "2",
+          "max": "3"
+        },
+        {
+          "column": "alpha",
+          "max": "9"
+        },
+        {
+          "column": "zeta",
+          "min": "1"
+        }
+      ],
+      "allowed_failure_permille": 300
+    },
+    "canonical": "{\"allowed_failure_permille\":300,\"conditions\":[{\"column\":\"alpha\",\"max\":\"9\"},{\"column\":\"mid\",\"max\":\"3\",\"min\":\"2\"},{\"column\":\"zeta\",\"min\":\"1\"}]}",
+    "check_hash": "64000591034530367325267909799353563342590336570926696138570482576568601639"
+  },
+  {
+    "name": "five conditions of both kinds",
+    "check": {
+      "conditions": [
+        {
+          "column": "c5",
+          "max": "5"
+        },
+        {
+          "column": "c4",
+          "min": "2026-02-28"
+        },
+        {
+          "column": "c3",
+          "min": "0",
+          "max": "0"
+        },
+        {
+          "column": "c2",
+          "min": "100000000000000"
+        },
+        {
+          "column": "c1",
+          "max": "2000-02-29"
+        }
+      ],
+      "allowed_failure_permille": 500
+    },
+    "canonical": "{\"allowed_failure_permille\":500,\"conditions\":[{\"column\":\"c1\",\"max\":\"2000-02-29\"},{\"column\":\"c2\",\"min\":\"100000000000000\"},{\"column\":\"c3\",\"max\":\"0\",\"min\":\"0\"},{\"column\":\"c4\",\"min\":\"2026-02-28\"},{\"column\":\"c5\",\"max\":\"5\"}]}",
+    "check_hash": "163435532511505043549324413045542275056287392838930951428173703341937504609"
+  },
+  {
+    "name": "a column name with unicode and quotes",
+    "check": {
+      "conditions": [
+        {
+          "column": "größe \"cm\"",
+          "min": "150",
+          "max": "200"
+        }
+      ],
+      "allowed_failure_permille": 400
+    },
+    "canonical": "{\"allowed_failure_permille\":400,\"conditions\":[{\"column\":\"größe \\\"cm\\\"\",\"max\":\"200\",\"min\":\"150\"}]}",
+    "check_hash": "261853577691124474842012501993634281971767423696877649043317858155649709422"
+  },
+  {
+    "name": "one value condition",
+    "check": {
+      "conditions": [
+        {
+          "column": "grade",
+          "values": [
+            "a"
+          ]
+        }
+      ],
+      "allowed_failure_permille": 0
+    },
+    "canonical": "{\"allowed_failure_permille\":0,\"conditions\":[{\"column\":\"grade\",\"values\":[\"a\"]}]}",
+    "check_hash": "404546412406268499642018271238940083023655815375907092018177915802358945617"
+  },
+  {
+    "name": "values are sorted by code unit",
+    "check": {
+      "conditions": [
+        {
+          "column": "grade",
+          "values": [
+            "b",
+            "a",
+            "B",
+            "é"
+          ]
+        }
+      ],
+      "allowed_failure_permille": 50
+    },
+    "canonical": "{\"allowed_failure_permille\":50,\"conditions\":[{\"column\":\"grade\",\"values\":[\"B\",\"a\",\"b\",\"é\"]}]}",
+    "check_hash": "290291700796040415509954153862247511874657086249059567423784459459119521093"
+  },
+  {
+    "name": "the order of the values does not change the hash",
+    "check": {
+      "conditions": [
+        {
+          "column": "grade",
+          "values": [
+            "é",
+            "B",
+            "a",
+            "b"
+          ]
+        }
+      ],
+      "allowed_failure_permille": 50
+    },
+    "canonical": "{\"allowed_failure_permille\":50,\"conditions\":[{\"column\":\"grade\",\"values\":[\"B\",\"a\",\"b\",\"é\"]}]}",
+    "check_hash": "290291700796040415509954153862247511874657086249059567423784459459119521093"
+  },
+  {
+    "name": "a value condition beside ranges",
+    "check": {
+      "conditions": [
+        {
+          "column": "age",
+          "min": "18"
+        },
+        {
+          "column": "colour",
+          "values": [
+            "red",
+            "blue"
+          ]
+        },
+        {
+          "column": "born",
+          "max": "2000-01-01"
+        }
+      ],
+      "allowed_failure_permille": 995
+    },
+    "canonical": "{\"allowed_failure_permille\":995,\"conditions\":[{\"column\":\"age\",\"min\":\"18\"},{\"column\":\"born\",\"max\":\"2000-01-01\"},{\"column\":\"colour\",\"values\":[\"blue\",\"red\"]}]}",
+    "check_hash": "298505309646567534749651463052854886993706417491788192363191615488675689040"
+  },
+  {
+    "name": "a fine allowed failure",
+    "check": {
+      "conditions": [
+        {
+          "column": "age",
+          "max": "65"
+        }
+      ],
+      "allowed_failure_permille": 1
+    },
+    "canonical": "{\"allowed_failure_permille\":1,\"conditions\":[{\"column\":\"age\",\"max\":\"65\"}]}",
+    "check_hash": "100422938915974216671175191681215127895458283906758297558394941731115490826"
+  },
+  {
+    "name": "a passed answer in band 8",
+    "message_fields": {
+      "thresholdRequestId": 12,
+      "consumerId": "did:privy:buyer",
+      "providerId": "did:privy:provider",
+      "proofId": 8001,
+      "tokenId": "17",
+      "chainId": "43113",
+      "contract": "0xAbCdEf0123456789abcdef0123456789ABCDEF01",
+      "plaintextHash": "303315674932308048673876201539301964505348764978929786316593855167787150251",
+      "checkHash": "178941332876190208921853417425278123017587160427934695197208343566876162134",
+      "band": 8,
+      "passed": true,
+      "stepPermille": 100
+    },
+    "message": "Aseryx threshold answer\nrequest:12\nconsumer:did:privy:buyer\nprovider:did:privy:provider\nproof:8001\ntoken:17\nchain:43113\ncontract:0xabcdef0123456789abcdef0123456789abcdef01\nplaintext:303315674932308048673876201539301964505348764978929786316593855167787150251\ncheck_hash:178941332876190208921853417425278123017587160427934695197208343566876162134\nstep:100\nband:8\npassed:1"
+  },
+  {
+    "name": "a failed answer in band 0 with a numeric chain id",
+    "message_fields": {
+      "thresholdRequestId": 1,
+      "consumerId": "did:privy:b",
+      "providerId": "did:privy:p",
+      "proofId": 1,
+      "tokenId": "123456789012345678901234567890",
+      "chainId": 1,
+      "contract": "0x0000000000000000000000000000000000000001",
+      "plaintextHash": "1",
+      "checkHash": "2",
+      "band": 0,
+      "passed": false,
+      "stepPermille": 1
+    },
+    "message": "Aseryx threshold answer\nrequest:1\nconsumer:did:privy:b\nprovider:did:privy:p\nproof:1\ntoken:123456789012345678901234567890\nchain:1\ncontract:0x0000000000000000000000000000000000000001\nplaintext:1\ncheck_hash:2\nstep:1\nband:0\npassed:0"
+  },
+  {
+    "name": "band 9 passed",
+    "message_fields": {
+      "thresholdRequestId": 987654,
+      "consumerId": "did:privy:cm1x",
+      "providerId": "did:privy:cm2y",
+      "proofId": 55,
+      "tokenId": "0",
+      "chainId": "43114",
+      "contract": "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+      "plaintextHash": "999",
+      "checkHash": "888",
+      "band": 9,
+      "passed": true,
+      "stepPermille": 50
+    },
+    "message": "Aseryx threshold answer\nrequest:987654\nconsumer:did:privy:cm1x\nprovider:did:privy:cm2y\nproof:55\ntoken:0\nchain:43114\ncontract:0xffffffffffffffffffffffffffffffffffffffff\nplaintext:999\ncheck_hash:888\nstep:50\nband:9\npassed:1"
+  },
+  {
+    "name": "a band in steps of 0.1%",
+    "message_fields": {
+      "thresholdRequestId": 3,
+      "consumerId": "did:privy:b",
+      "providerId": "did:privy:p",
+      "proofId": 2,
+      "tokenId": "5",
+      "chainId": "43113",
+      "contract": "0x0000000000000000000000000000000000000002",
+      "plaintextHash": "7",
+      "checkHash": "8",
+      "stepPermille": 1,
+      "band": 999,
+      "passed": true
+    },
+    "message": "Aseryx threshold answer\nrequest:3\nconsumer:did:privy:b\nprovider:did:privy:p\nproof:2\ntoken:5\nchain:43113\ncontract:0x0000000000000000000000000000000000000002\nplaintext:7\ncheck_hash:8\nstep:1\nband:999\npassed:1"
+  },
+  {
+    "name": "numeric bound \"0\"",
+    "bound_kind": "numeric",
+    "value": "0",
+    "valid": true
+  },
+  {
+    "name": "numeric bound \"-0\"",
+    "bound_kind": "numeric",
+    "value": "-0",
+    "valid": true
+  },
+  {
+    "name": "numeric bound \"18\"",
+    "bound_kind": "numeric",
+    "value": "18",
+    "valid": true
+  },
+  {
+    "name": "numeric bound \"-12.5\"",
+    "bound_kind": "numeric",
+    "value": "-12.5",
+    "valid": true
+  },
+  {
+    "name": "numeric bound \"1000.50\"",
+    "bound_kind": "numeric",
+    "value": "1000.50",
+    "valid": true
+  },
+  {
+    "name": "numeric bound \"0.000001\"",
+    "bound_kind": "numeric",
+    "value": "0.000001",
+    "valid": true
+  },
+  {
+    "name": "numeric bound \"123456789012345\"",
+    "bound_kind": "numeric",
+    "value": "123456789012345",
+    "valid": true
+  },
+  {
+    "name": "numeric bound \"1234567890123.45\"",
+    "bound_kind": "numeric",
+    "value": "1234567890123.45",
+    "valid": true
+  },
+  {
+    "name": "numeric bound \"0.123456789012345\"",
+    "bound_kind": "numeric",
+    "value": "0.123456789012345",
+    "valid": true
+  },
+  {
+    "name": "numeric bound \"123456789012345.6\"",
+    "bound_kind": "numeric",
+    "value": "123456789012345.6",
+    "valid": false
+  },
+  {
+    "name": "numeric bound \"1234567890123456\"",
+    "bound_kind": "numeric",
+    "value": "1234567890123456",
+    "valid": false
+  },
+  {
+    "name": "numeric bound \"\"",
+    "bound_kind": "numeric",
+    "value": "",
+    "valid": false
+  },
+  {
+    "name": "numeric bound \"-\"",
+    "bound_kind": "numeric",
+    "value": "-",
+    "valid": false
+  },
+  {
+    "name": "numeric bound \".5\"",
+    "bound_kind": "numeric",
+    "value": ".5",
+    "valid": false
+  },
+  {
+    "name": "numeric bound \"5.\"",
+    "bound_kind": "numeric",
+    "value": "5.",
+    "valid": false
+  },
+  {
+    "name": "numeric bound \"+5\"",
+    "bound_kind": "numeric",
+    "value": "+5",
+    "valid": false
+  },
+  {
+    "name": "numeric bound \"1e3\"",
+    "bound_kind": "numeric",
+    "value": "1e3",
+    "valid": false
+  },
+  {
+    "name": "numeric bound \"1,000\"",
+    "bound_kind": "numeric",
+    "value": "1,000",
+    "valid": false
+  },
+  {
+    "name": "numeric bound \"1 000\"",
+    "bound_kind": "numeric",
+    "value": "1 000",
+    "valid": false
+  },
+  {
+    "name": "numeric bound \"007\"",
+    "bound_kind": "numeric",
+    "value": "007",
+    "valid": false
+  },
+  {
+    "name": "numeric bound \"--1\"",
+    "bound_kind": "numeric",
+    "value": "--1",
+    "valid": false
+  },
+  {
+    "name": "numeric bound \"0x10\"",
+    "bound_kind": "numeric",
+    "value": "0x10",
+    "valid": false
+  },
+  {
+    "name": "numeric bound \"NaN\"",
+    "bound_kind": "numeric",
+    "value": "NaN",
+    "valid": false
+  },
+  {
+    "name": "numeric bound \"Infinity\"",
+    "bound_kind": "numeric",
+    "value": "Infinity",
+    "valid": false
+  },
+  {
+    "name": "numeric bound \" 5\"",
+    "bound_kind": "numeric",
+    "value": " 5",
+    "valid": false
+  },
+  {
+    "name": "numeric bound \"5 \"",
+    "bound_kind": "numeric",
+    "value": "5 ",
+    "valid": false
+  },
+  {
+    "name": "numeric bound \"1_000\"",
+    "bound_kind": "numeric",
+    "value": "1_000",
+    "valid": false
+  },
+  {
+    "name": "date bound \"2026-10-28\"",
+    "bound_kind": "date",
+    "value": "2026-10-28",
+    "valid": true
+  },
+  {
+    "name": "date bound \"2024-02-29\"",
+    "bound_kind": "date",
+    "value": "2024-02-29",
+    "valid": true
+  },
+  {
+    "name": "date bound \"2000-02-29\"",
+    "bound_kind": "date",
+    "value": "2000-02-29",
+    "valid": true
+  },
+  {
+    "name": "date bound \"0001-01-01\"",
+    "bound_kind": "date",
+    "value": "0001-01-01",
+    "valid": true
+  },
+  {
+    "name": "date bound \"9999-12-31\"",
+    "bound_kind": "date",
+    "value": "9999-12-31",
+    "valid": true
+  },
+  {
+    "name": "date bound \"2023-02-29\"",
+    "bound_kind": "date",
+    "value": "2023-02-29",
+    "valid": false
+  },
+  {
+    "name": "date bound \"1900-02-29\"",
+    "bound_kind": "date",
+    "value": "1900-02-29",
+    "valid": false
+  },
+  {
+    "name": "date bound \"2026-13-01\"",
+    "bound_kind": "date",
+    "value": "2026-13-01",
+    "valid": false
+  },
+  {
+    "name": "date bound \"2026-00-10\"",
+    "bound_kind": "date",
+    "value": "2026-00-10",
+    "valid": false
+  },
+  {
+    "name": "date bound \"2026-04-31\"",
+    "bound_kind": "date",
+    "value": "2026-04-31",
+    "valid": false
+  },
+  {
+    "name": "date bound \"2026-4-1\"",
+    "bound_kind": "date",
+    "value": "2026-4-1",
+    "valid": false
+  },
+  {
+    "name": "date bound \"26-10-28\"",
+    "bound_kind": "date",
+    "value": "26-10-28",
+    "valid": false
+  },
+  {
+    "name": "date bound \"2026/10/28\"",
+    "bound_kind": "date",
+    "value": "2026/10/28",
+    "valid": false
+  },
+  {
+    "name": "date bound \"2026-10-28T00:00:00Z\"",
+    "bound_kind": "date",
+    "value": "2026-10-28T00:00:00Z",
+    "valid": false
+  },
+  {
+    "name": "date bound \"0000-01-01\"",
+    "bound_kind": "date",
+    "value": "0000-01-01",
+    "valid": false
+  },
+  {
+    "name": "date bound \"\"",
+    "bound_kind": "date",
+    "value": "",
+    "valid": false
+  },
+  {
+    "name": "date bound \"28-10-2026\"",
+    "bound_kind": "date",
+    "value": "28-10-2026",
+    "valid": false
+  },
+  {
+    "name": "100 rows have steps of 100 permille",
+    "rows": 100,
+    "step_permille": 100
+  },
+  {
+    "name": "199 rows have steps of 100 permille",
+    "rows": 199,
+    "step_permille": 100
+  },
+  {
+    "name": "200 rows have steps of 50 permille",
+    "rows": 200,
+    "step_permille": 50
+  },
+  {
+    "name": "499 rows have steps of 50 permille",
+    "rows": 499,
+    "step_permille": 50
+  },
+  {
+    "name": "500 rows have steps of 20 permille",
+    "rows": 500,
+    "step_permille": 20
+  },
+  {
+    "name": "999 rows have steps of 20 permille",
+    "rows": 999,
+    "step_permille": 20
+  },
+  {
+    "name": "1000 rows have steps of 10 permille",
+    "rows": 1000,
+    "step_permille": 10
+  },
+  {
+    "name": "1999 rows have steps of 10 permille",
+    "rows": 1999,
+    "step_permille": 10
+  },
+  {
+    "name": "2000 rows have steps of 5 permille",
+    "rows": 2000,
+    "step_permille": 5
+  },
+  {
+    "name": "4999 rows have steps of 5 permille",
+    "rows": 4999,
+    "step_permille": 5
+  },
+  {
+    "name": "5000 rows have steps of 2 permille",
+    "rows": 5000,
+    "step_permille": 2
+  },
+  {
+    "name": "9999 rows have steps of 2 permille",
+    "rows": 9999,
+    "step_permille": 2
+  },
+  {
+    "name": "10000 rows have steps of 1 permille",
+    "rows": 10000,
+    "step_permille": 1
+  },
+  {
+    "name": "123456789 rows have steps of 1 permille",
+    "rows": 123456789,
+    "step_permille": 1
+  }
+]
