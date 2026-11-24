@@ -43,7 +43,7 @@ fn entry(type_name: &str) -> (Value, String) {
 fn the_vendored_fixtures_match_their_recorded_hashes() {
     let source: Value = serde_json::from_str(SOURCE).expect("SOURCE.json");
     let files = source["files"].as_array().expect("files");
-    assert_eq!(files.len(), 2);
+    assert_eq!(files.len(), 6);
     for entry in files {
         let name = entry["file"].as_str().expect("file");
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

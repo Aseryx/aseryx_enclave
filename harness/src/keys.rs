@@ -39,11 +39,17 @@ impl ResponseKey {
     ///
     /// [`KeyError::Random`] if no random bytes are available.
     pub fn generate() -> Result<Self, KeyError> {
-        let (private, public) = X25519HkdfSha256::derive_keypair(&random32()?);
-        Ok(Self {
+        Ok(Self::from_ikm(&random32()?))
+    }
+
+    /// The key pair RFC 9180 derives from 32 bytes of input key material, for fixed test vectors.
+    #[must_use]
+    pub fn from_ikm(ikm: &[u8; 32]) -> Self {
+        let (private, public) = X25519HkdfSha256::derive_keypair(ikm);
+        Self {
             private,
             public: public.to_bytes().into(),
-        })
+        }
     }
 
     /// The public key as 64 lower-case hex digits, as runtime data carries it.
