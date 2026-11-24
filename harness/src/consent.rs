@@ -156,6 +156,27 @@ impl Uint256 {
         Ok(Self(value))
     }
 
+    /// The value as a decimal string, with no leading zeros.
+    #[must_use]
+    pub fn to_decimal(&self) -> String {
+        let mut limbs = self.0;
+        let mut digits = Vec::new();
+        while limbs.iter().any(|b| *b != 0) {
+            let mut remainder = 0u16;
+            for byte in &mut limbs {
+                let current = remainder * 256 + u16::from(*byte);
+                *byte = (current / 10) as u8;
+                remainder = current % 10;
+            }
+            digits.push(b'0' + remainder as u8);
+        }
+        if digits.is_empty() {
+            digits.push(b'0');
+        }
+        digits.reverse();
+        String::from_utf8(digits).expect("digits are ASCII")
+    }
+
     /// An integer that fits in 64 bits.
     #[must_use]
     pub fn from_u64(value: u64) -> Self {

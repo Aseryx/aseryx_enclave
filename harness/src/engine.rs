@@ -353,6 +353,16 @@ impl EngineModule {
         })
     }
 
+    /// The revision of the threshold circuits this engine builds, which names them `threshold_r<revision>_c<conditions>`.
+    ///
+    /// # Errors
+    ///
+    /// [`EngineError::Host`] if the module cannot be instantiated.
+    pub fn threshold_circuit_revision(&self) -> Result<u32, EngineError> {
+        let mut host = self.host()?;
+        u32::try_from(host.call("thresholdCircuitRevision", &[], 1)?[0]).map_err(host_error)
+    }
+
     /// The hash of a label, as the engine computes it: a decimal field element.
     ///
     /// # Errors
