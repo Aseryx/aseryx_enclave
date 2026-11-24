@@ -24,20 +24,25 @@ jobs:
           az version --output json
           docker version --format '{{.Server.Version}}'
 
-      - name: Generate the debug-mode policy twice
+      - name: Generate each debug-mode policy twice
         run: |
           mkdir -p out
-          for n in a b; do
-            cp spike/0.1/template.json "out/template-$n.json"
-            az confcom acipolicygen --template-file "out/template-$n.json" \
-              --debug-mode --enable-stdio -y
-            jq -r '.resources[0].properties.confidentialComputeProperties.ccePolicy' \
-              "out/template-$n.json" | base64 -d > "out/policy-$n.rego"
-            sha256sum "out/policy-$n.rego" | tee "out/policy-$n.sha256"
+          for dir in spike/*/; do
+            name=$(basename "$dir")
+            [ -f "$dir/template.json" ] || continue
+            mkdir -p "out/$name"
+            for n in a b; do
+              cp "$dir/template.json" "out/$name/template-$n.json"
+              az confcom acipolicygen --template-file "out/$name/template-$n.json" \
+                --debug-mode --enable-stdio -y
+              jq -r '.resources[0].properties.confidentialComputeProperties.ccePolicy' \
+                "out/$name/template-$n.json" | base64 -d > "out/$name/policy-$n.rego"
+              sha256sum "out/$name/policy-$n.rego" | tee "out/$name/policy-$n.sha256"
+            done
+            cmp "out/$name/policy-a.rego" "out/$name/policy-b.rego"
+            cp "out/$name/template-a.json" "out/$name/template.json"
+            sha256sum "out/$name/policy-a.rego" | cut -d' ' -f1 > "out/$name/policy.sha256"
           done
-          cmp out/policy-a.rego out/policy-b.rego
-          cp out/template-a.json out/template.json
-          sha256sum out/policy-a.rego | cut -d' ' -f1 > out/policy.sha256
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
