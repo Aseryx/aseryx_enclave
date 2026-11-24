@@ -96,17 +96,10 @@ impl ResultKey {
     }
 
     /// Signs a 32-byte digest and returns r, s and a recovery byte of 27 or 28, the form ethers recovers from. The
-    /// signature is deterministic (RFC 6979) and has a low s.
+    /// signature is deterministic (RFC 6979), and the curve library returns a low s.
     #[must_use]
     pub fn sign(&self, digest: &Bytes32) -> [u8; 65] {
         let (signature, recovery) = self.signing.sign_prehash_recoverable(&digest.0);
-        let normalized = signature.normalize_s();
-        let recovery = if normalized == signature {
-            recovery
-        } else {
-            RecoveryId::new(!recovery.is_y_odd(), recovery.is_x_reduced())
-        };
-        let signature = normalized;
         let mut out = [0u8; 65];
         out[..64].copy_from_slice(&signature.to_bytes());
         out[64] = 27 + recovery.to_byte();
