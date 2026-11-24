@@ -12,4 +12,7 @@ pub mod consent;
 pub mod engine;
 pub mod error_code;
 pub mod keys;
+pub mod manifest;
+pub mod pipeline;
 pub mod runtime_data;
+pub mod store;
