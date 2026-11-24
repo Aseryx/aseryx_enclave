@@ -16,5 +16,6 @@ pub mod label;
 pub mod lit;
 pub mod manifest;
 pub mod pipeline;
+pub mod result;
 pub mod runtime_data;
 pub mod store;
