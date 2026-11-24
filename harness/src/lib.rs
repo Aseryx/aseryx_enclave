@@ -5,3 +5,4 @@
 //! bytes, and returns a signed result.
 
 pub mod consent;
+pub mod engine;
