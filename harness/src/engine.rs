@@ -353,6 +353,66 @@ impl EngineModule {
         })
     }
 
+    /// The hash of a label, as the engine computes it: a decimal field element.
+    ///
+    /// # Errors
+    ///
+    /// [`EngineError::Module`] if the text is not a label.
+    pub fn label_hash(&self, label_json: &str) -> Result<String, EngineError> {
+        let mut host = self.host()?;
+        let ptr = host.write(label_json.as_bytes())?;
+        let r = host.call("labelHash", &[Val::I32(ptr), Val::I32(len(label_json))], 4)?;
+        if r[3] != 0 {
+            return Err(EngineError::Module(host.take_error(r[2])?));
+        }
+        let text = String::from_utf8(host.read(r[0], r[1])?).map_err(host_error)?;
+        host.call(
+            "__wbindgen_free",
+            &[Val::I32(r[0]), Val::I32(r[1]), Val::I32(1)],
+            0,
+        )?;
+        Ok(text)
+    }
+
+    /// The threshold circuit's input for one counted check, as the engine builds it from the count's JSON result, the
+    /// check's hash and its allowed failure in permille.
+    ///
+    /// # Errors
+    ///
+    /// [`EngineError::Module`] if the engine refuses the result or the hash.
+    pub fn threshold_witness(
+        &self,
+        result_json: &str,
+        check_hash: &str,
+        allowed_failure_permille: u32,
+    ) -> Result<String, EngineError> {
+        let mut host = self.host()?;
+        let result_ptr = host.write(result_json.as_bytes())?;
+        let hash_ptr = host.write(check_hash.as_bytes())?;
+        let permille = i32::try_from(allowed_failure_permille).map_err(host_error)?;
+        let r = host.call(
+            "thresholdWitness",
+            &[
+                Val::I32(result_ptr),
+                Val::I32(len(result_json)),
+                Val::I32(hash_ptr),
+                Val::I32(len(check_hash)),
+                Val::I32(permille),
+            ],
+            4,
+        )?;
+        if r[3] != 0 {
+            return Err(EngineError::Module(host.take_error(r[2])?));
+        }
+        let text = String::from_utf8(host.read(r[0], r[1])?).map_err(host_error)?;
+        host.call(
+            "__wbindgen_free",
+            &[Val::I32(r[0]), Val::I32(r[1]), Val::I32(1)],
+            0,
+        )?;
+        Ok(text)
+    }
+
     /// Starts a check of a data label against one file.
     ///
     /// # Errors
