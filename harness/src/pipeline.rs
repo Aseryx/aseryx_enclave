@@ -75,9 +75,9 @@ fn stream_chunk(
     }
 }
 
-/// Feeds the whole dataset to the engine once and returns the SHA-256 of the plaintext it fed.
+/// Feeds the whole dataset to every run once and returns the SHA-256 of the plaintext it fed.
 fn feed_pass(
-    run: &mut Run,
+    runs: &mut [Run],
     manifest: &Manifest,
     key: &[u8; 32],
     cache: &CipherCache,
@@ -88,7 +88,9 @@ fn feed_pass(
         let sealed = cache.read(&chunk.cid)?;
         total += stream_chunk(key, chunk, &sealed, &mut |slice| {
             hasher.update(slice);
-            run.feed(slice).map_err(PipelineError::from)
+            runs.iter_mut()
+                .try_for_each(|run| run.feed(slice))
+                .map_err(PipelineError::from)
         })?;
     }
     if total != manifest.total_size {
@@ -97,27 +99,56 @@ fn feed_pass(
     Ok(hasher.finalize().into())
 }
 
-/// Runs every pass the engine asks for over the cached chunks and returns the engine's JSON result.
+/// Runs every pass the engines ask for over the cached chunks and returns each engine's JSON result, in the order of
+/// `runs`. The runs share the passes, so several checks over one file decrypt it only as often as one.
 ///
 /// `expected` is the plaintext hash from the chain registry; every pass must hash to it.
 ///
 /// # Errors
 ///
 /// [`PipelineError`]: a chunk that is missing, tampered with or the wrong size, a pass that does not hash to `expected`,
-/// or an engine failure.
+/// an engine failure, or runs that ask for different numbers of passes.
+pub fn run_passes_many(
+    mut runs: Vec<Run>,
+    manifest: &Manifest,
+    key: &[u8; 32],
+    cache: &CipherCache,
+    expected: &[u8; 32],
+) -> Result<Vec<String>, PipelineError> {
+    loop {
+        if feed_pass(&mut runs, manifest, key, cache)? != *expected {
+            return Err(PipelineError::HashMismatch);
+        }
+        let more = runs
+            .iter_mut()
+            .map(Run::next_pass)
+            .collect::<Result<Vec<_>, _>>()?;
+        if more.iter().any(|m| *m != more[0]) {
+            return Err(PipelineError::Engine(EngineError::Module(
+                "the engine asked for different passes".to_owned(),
+            )));
+        }
+        if !more.first().copied().unwrap_or(false) {
+            return Ok(runs
+                .into_iter()
+                .map(Run::finish)
+                .collect::<Result<_, _>>()?);
+        }
+    }
+}
+
+/// Runs every pass the engine asks for over the cached chunks and returns the engine's JSON result.
+///
+/// # Errors
+///
+/// As [`run_passes_many`].
 pub fn run_passes(
-    mut run: Run,
+    run: Run,
     manifest: &Manifest,
     key: &[u8; 32],
     cache: &CipherCache,
     expected: &[u8; 32],
 ) -> Result<String, PipelineError> {
-    loop {
-        if feed_pass(&mut run, manifest, key, cache)? != *expected {
-            return Err(PipelineError::HashMismatch);
-        }
-        if !run.next_pass()? {
-            return Ok(run.finish()?);
-        }
-    }
+    let mut results = run_passes_many(vec![run], manifest, key, cache, expected)?;
+    Ok(results.remove(0))
 }
