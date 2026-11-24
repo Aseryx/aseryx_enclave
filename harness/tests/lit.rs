@@ -151,8 +151,8 @@ fn the_request_carries_the_code_the_parameters_and_the_usage_key() {
         json!({"has_error": false, "response": {"ok": true, "sealed": sealed_json()}}).to_string();
     let (url, seen) = serve_many(1, move |_| (200, answer.clone()));
     let params = json!({"operation": "attestedDecrypt", "kind": "appraisal"});
-    let sealed = ChipotleReleaser::new(&url, "usage-key-123", "async function main(){}")
-        .release(&params)
+    let sealed = ChipotleReleaser::new(&url, "async function main(){}")
+        .release("usage-key-123", &params)
         .expect("sealed");
     assert_eq!(
         serde_json::to_value(&sealed.enc).expect("enc"),
@@ -198,8 +198,8 @@ fn a_refusal_is_a_denial_and_anything_else_is_a_failure() {
     for (status, body, expected) in cases {
         let (url, _server) = serve_many(1, move |_| (status, body.clone()));
         assert_eq!(
-            ChipotleReleaser::new(&url, "k", "c")
-                .release(&json!({}))
+            ChipotleReleaser::new(&url, "c")
+                .release("k", &json!({}))
                 .err(),
             Some(expected),
             "{status}"

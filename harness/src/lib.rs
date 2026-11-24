@@ -11,6 +11,7 @@ pub mod claim;
 pub mod consent;
 pub mod engine;
 pub mod error_code;
+pub mod job;
 pub mod keys;
 pub mod label;
 pub mod lit;

@@ -20,7 +20,7 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 const RESPONSE_DOMAIN: &str = "aseryx/attested-key-response/v1";
 
 /// Why the key was not released.
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, thiserror::Error, PartialEq, Eq)]
 pub enum LitError {
     /// The action refused: a consent, token or key did not satisfy it.
     #[error("the decrypt action refused")]
@@ -44,12 +44,12 @@ pub struct SealedResponse {
 
 /// Something that can run the decrypt action with an `attestedDecrypt` request.
 pub trait KeyReleaser {
-    /// Runs the action with `params` and returns the sealed key.
+    /// Runs the action with `params`, using the usage key `usage_key`, and returns the sealed key.
     ///
     /// # Errors
     ///
     /// [`LitError::Denied`] when the action refuses and [`LitError::Transport`] for anything else that goes wrong.
-    fn release(&self, params: &Value) -> Result<SealedResponse, LitError>;
+    fn release(&self, usage_key: &str, params: &Value) -> Result<SealedResponse, LitError>;
 }
 
 /// Opens a sealed key with the workload's response key. `consent_digest` is the digest of the consent that released it,
@@ -100,17 +100,16 @@ struct ActionOutput {
 /// Lit Chipotle, running the decrypt action's source with a usage key.
 pub struct ChipotleReleaser {
     url: String,
-    api_key: String,
     code: String,
     agent: ureq::Agent,
 }
 
 impl ChipotleReleaser {
     /// A client of the Chipotle API at `url` (for example `https://api.chipotle.litprotocol.com/core/v1/lit_action`) that
-    /// runs the action `code` with the usage key `api_key`. The usage key lets its holder run the action; the action
+    /// runs the action `code`. Each call brings its own usage key, which lets its holder run the action; the action
     /// itself decides whether a key is released.
     #[must_use]
-    pub fn new(url: &str, api_key: &str, code: &str) -> Self {
+    pub fn new(url: &str, code: &str) -> Self {
         let agent = ureq::Agent::config_builder()
             .timeout_global(Some(REQUEST_TIMEOUT))
             .http_status_as_error(false)
@@ -118,7 +117,6 @@ impl ChipotleReleaser {
             .into();
         Self {
             url: url.to_owned(),
-            api_key: api_key.to_owned(),
             code: code.to_owned(),
             agent,
         }
@@ -126,11 +124,11 @@ impl ChipotleReleaser {
 }
 
 impl KeyReleaser for ChipotleReleaser {
-    fn release(&self, params: &Value) -> Result<SealedResponse, LitError> {
+    fn release(&self, usage_key: &str, params: &Value) -> Result<SealedResponse, LitError> {
         let mut response = self
             .agent
             .post(&self.url)
-            .header("X-Api-Key", &self.api_key)
+            .header("X-Api-Key", usage_key)
             .header("X-Privacy-Mode", "true")
             .send_json(json!({"code": self.code, "js_params": params}))
             .map_err(|_| LitError::Transport)?;
