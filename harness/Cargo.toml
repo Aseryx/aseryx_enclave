@@ -9,8 +9,10 @@ description = "The workload that runs inside the attested container"
 hex = "0.4.3"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
+sha2 = "0.11.1"
 sha3 = "0.12.0"
 thiserror = "2.0.21"
+wasmtime = "51.0.0"
 
 [lints.rust]
 missing_docs = "deny"
@@ -18,3 +20,4 @@ unsafe_code = "forbid"
 
 [dev-dependencies]
 sha2 = "0.11.1"
+wat = "1.263.0"

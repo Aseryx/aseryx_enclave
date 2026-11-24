@@ -1,5 +1,10 @@
 CARGO ?= cargo
 
+# The engine module browsers run and the appraisal-core fixtures, from the sibling checkouts. The engine tests fail
+# when either is missing.
+export ENCLAVE_ENGINE_WASM ?= $(abspath ../aseryx_application/client/vendor/appraisal-core/appraisal_core_wasm_bg.wasm)
+export ENCLAVE_TABULAR_FIXTURES ?= $(abspath ../aseryx_zk_server/tests/fixtures/tabular_v12)
+
 .PHONY: help fmt fmt-check clippy test doc check
 
 help: ## List the targets
