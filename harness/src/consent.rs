@@ -269,6 +269,12 @@ impl Tcb {
 pub struct Text<const MAX: usize>(String);
 
 impl<const MAX: usize> Text<MAX> {
+    /// The text.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
     /// Checks the length.
     ///
     /// # Errors
