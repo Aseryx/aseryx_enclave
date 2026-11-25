@@ -22,9 +22,12 @@ use aseryx_enclave_harness::job::{
 use aseryx_enclave_harness::keys::verify_result_signature;
 use aseryx_enclave_harness::label::seal_label;
 use aseryx_enclave_harness::lit::{KeyReleaser, LitError, SealedResponse};
+use aseryx_enclave_harness::manifest::Manifest;
 use aseryx_enclave_harness::result::{Proof, classify_count};
 use aseryx_enclave_harness::runtime_data::RuntimeData;
-use aseryx_enclave_harness::store::{CipherCache, Fetcher, StoreError, UrlFetcher};
+use aseryx_enclave_harness::store::{
+    CipherCache, DISK_RESERVE_BYTES, Fetcher, StoreError, UrlFetcher, chunk_limit,
+};
 use base64::Engine;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use common::unique_dir;
@@ -309,9 +312,23 @@ fn run(
     outcome_of_lit: Result<(), LitError>,
     blobs: HashMap<String, Vec<u8>>,
 ) -> Run {
+    run_on_disk(input, outcome_of_lit, blobs, None)
+}
+
+/// A run in which the disk holding the chunk cache has `disk_free` free bytes, when given.
+fn run_on_disk(
+    input: DisputeInputs,
+    outcome_of_lit: Result<(), LitError>,
+    blobs: HashMap<String, Vec<u8>>,
+    disk_free: Option<u64>,
+) -> Run {
     let (posted, released) = (Mutex::new(Vec::new()), Mutex::new(Vec::new()));
     let dir = unique_dir("dispute");
-    let cache = CipherCache::new(&dir).expect("cache");
+    let cache = match disk_free {
+        Some(free) => CipherCache::with_free_space(&dir, move |_| Ok(free)),
+        None => CipherCache::new(&dir),
+    }
+    .expect("cache");
     let engine = engine();
     let lit = Lit {
         consent: input.consent.clone(),
@@ -649,6 +666,30 @@ fn evidence_that_cannot_be_fetched_is_a_fetch_failure() {
         &run(input, Ok(()), ev.blobs.clone()),
         ErrorCode::FetchFailed,
     );
+}
+
+/// Evidence the disk cannot hold ends the job with `too_large` before any chunk is fetched (the chunks are gone from the
+/// URLs here, so a fetch would be `fetch_failed`); a disk with exactly enough room runs the job.
+#[test]
+fn evidence_the_disk_cannot_hold_ends_the_job_before_any_chunk_is_fetched() {
+    let (ev, _, hash, _, _) = honest();
+    let base = inputs(&ev, &hash, DisputeType::LabelMismatch);
+    let manifest = Manifest::parse(
+        &String::from_utf8(ev.blobs[&format!("{BASE}/manifest")].clone()).expect("manifest text"),
+    )
+    .expect("manifest");
+    let needed =
+        manifest.chunks.len() as u64 * chunk_limit(manifest.chunk_size) + DISK_RESERVE_BYTES;
+
+    let mut blobs = ev.blobs.clone();
+    blobs.retain(|url, _| !url.contains("/chunk/"));
+    error_posted(
+        &run_on_disk(base.clone(), Ok(()), blobs, Some(needed - 1)),
+        ErrorCode::TooLarge,
+    );
+
+    let run = run_on_disk(base, Ok(()), ev.blobs.clone(), Some(needed));
+    assert_eq!(run.outcome, Ok(()));
 }
 
 /// A dispute that disagrees with its consent, or is inconsistent, is refused before any key is released.

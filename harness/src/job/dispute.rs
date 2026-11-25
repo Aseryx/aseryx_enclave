@@ -16,7 +16,7 @@ use crate::label::open_label;
 use crate::manifest::Manifest;
 use crate::pipeline::{PipelineError, run_passes};
 use crate::result::{DisputeFacts, label_dispute_result, threshold_dispute_result};
-use crate::store::{UrlChunks, chunk_limit};
+use crate::store::{StoreError, UrlChunks, chunk_limit};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -255,6 +255,14 @@ fn check_evidence(
         ),
         ErrorCode::FetchFailed,
     )?;
+    match services
+        .cache
+        .ensure_room(manifest.chunks.len(), chunk_limit(manifest.chunk_size))
+    {
+        Ok(()) => {}
+        Err(StoreError::NoRoom) => return Err(ErrorCode::TooLarge),
+        Err(_) => return Err(ErrorCode::FetchFailed),
+    }
     read(
         services.cache.fill(
             &manifest.chunks,
