@@ -16,7 +16,7 @@ use aseryx_enclave_harness::consent::{
 use aseryx_enclave_harness::engine::{EngineModule, Limits};
 use aseryx_enclave_harness::error_code::ErrorCode;
 use aseryx_enclave_harness::job::{
-    ApiError, CheckSpec, JobApi, JobInputs, JobKind, ProveError, Prover, Services, run_job,
+    ApiError, CheckSpec, Job, JobApi, JobInputs, JobKind, ProveError, Prover, Services, run_job,
 };
 use aseryx_enclave_harness::keys::verify_result_signature;
 use aseryx_enclave_harness::label::{open_label, seal_label};
@@ -24,7 +24,9 @@ use aseryx_enclave_harness::lit::{KeyReleaser, LitError, SealedResponse};
 use aseryx_enclave_harness::manifest::Manifest;
 use aseryx_enclave_harness::result::Proof;
 use aseryx_enclave_harness::runtime_data::RuntimeData;
-use aseryx_enclave_harness::store::{CipherCache, Fetcher, StoreError};
+use aseryx_enclave_harness::store::{
+    CipherCache, Fetcher, MAX_MANIFEST_BYTES, StoreError, UrlFetcher, chunk_limit,
+};
 use base64::Engine;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use common::unique_dir;
@@ -88,6 +90,8 @@ struct World {
     posted: Mutex<Vec<Value>>,
     released: Mutex<Vec<Value>>,
     proved: Mutex<Vec<String>>,
+    /// Each fetch from the gateway and the most it was allowed to return.
+    fetches: Mutex<Vec<(String, u64)>>,
 }
 
 fn world() -> World {
@@ -124,6 +128,7 @@ fn world() -> World {
         posted: Mutex::new(Vec::new()),
         released: Mutex::new(Vec::new()),
         proved: Mutex::new(Vec::new()),
+        fetches: Mutex::new(Vec::new()),
     }
 }
 
@@ -134,10 +139,15 @@ impl ChainReader for Fixed {
     }
 }
 
-struct Blobs<'a>(&'a HashMap<String, Vec<u8>>);
+struct Blobs<'a>(&'a World);
 impl Fetcher for Blobs<'_> {
-    fn fetch(&self, cid: &str) -> Result<Vec<u8>, StoreError> {
-        self.0.get(cid).cloned().ok_or(StoreError::Fetch)
+    fn fetch(&self, cid: &str, max_bytes: u64) -> Result<Vec<u8>, StoreError> {
+        self.0
+            .fetches
+            .lock()
+            .expect("lock")
+            .push((cid.to_owned(), max_bytes));
+        self.0.blobs.get(cid).cloned().ok_or(StoreError::Fetch)
     }
 }
 
@@ -172,7 +182,7 @@ struct Expiring<'a> {
     max_age: u64,
 }
 impl JobApi for Expiring<'_> {
-    fn job(&self, token: &str, runtime_data: &str) -> Result<JobInputs, ApiError> {
+    fn job(&self, token: &str, runtime_data: &str) -> Result<Job, ApiError> {
         if !token_is_fresh(token, self.clock, self.max_age) {
             return Err(ApiError);
         }
@@ -226,6 +236,14 @@ impl Prover for Slow<'_> {
     }
 }
 
+/// A dataset job fetches no evidence.
+struct NoEvidence;
+impl UrlFetcher for NoEvidence {
+    fn get(&self, _: &str, _: u64) -> Result<Vec<u8>, StoreError> {
+        panic!("a dataset job fetched evidence")
+    }
+}
+
 struct Assigns(Result<Bytes32, ClaimError>);
 impl JobSource for Assigns {
     fn claim(&self, _: &str, _: &RuntimeData, _: u32) -> Result<Bytes32, ClaimError> {
@@ -239,8 +257,11 @@ struct Api<'a> {
     post_fails: bool,
 }
 impl JobApi for Api<'_> {
-    fn job(&self, _: &str, _: &str) -> Result<JobInputs, ApiError> {
-        self.inputs.clone().map_err(|_| ApiError)
+    fn job(&self, _: &str, _: &str) -> Result<Job, ApiError> {
+        self.inputs
+            .clone()
+            .map(|inputs| Job::Data(Box::new(inputs)))
+            .map_err(|_| ApiError)
     }
     fn post_result(&self, body: &Value) -> Result<(), ApiError> {
         self.world.posted.lock().expect("lock").push(body.clone());
@@ -386,7 +407,7 @@ fn run(
     let cache = CipherCache::new(&dir).expect("cache");
     let engine = engine();
     let chain = Fixed(t.record);
-    let fetcher = Blobs(&world.blobs);
+    let fetcher = Blobs(world);
     let relay_consent = inputs.as_ref().ok().map(|i| {
         let kind = match i.kind {
             JobKind::Appraisal => "appraisal",
@@ -447,6 +468,7 @@ fn run(
         releaser,
         chain: &chain,
         fetcher: &fetcher,
+        evidence: &NoEvidence,
         cache: &cache,
         engine: &engine,
         prover,
@@ -921,4 +943,26 @@ fn an_error_after_a_long_run_is_posted_with_a_fresh_token() {
     assert_eq!(posted.len(), 1);
     assert_eq!(posted[0]["kind"], "error");
     assert_eq!(posted[0]["token"], "1400.x.y");
+}
+
+/// Every fetch of a job is bounded: the manifest by its own limit and each chunk by the limit of the manifest's chunk size.
+#[test]
+fn every_fetch_of_a_job_has_a_limit() {
+    let w = world();
+    assert_eq!(run(&w, Ok(appraisal_inputs(&w)), |_| {}), Ok(()));
+    let fetches = w.fetches.lock().expect("lock").clone();
+    let manifest: Vec<_> = fetches
+        .iter()
+        .filter(|(cid, _)| cid == MANIFEST_CID)
+        .collect();
+    assert_eq!(manifest, [&(MANIFEST_CID.to_owned(), MAX_MANIFEST_BYTES)]);
+    let chunks: Vec<_> = fetches
+        .iter()
+        .filter(|(cid, _)| cid != MANIFEST_CID)
+        .collect();
+    assert!(!chunks.is_empty());
+    assert!(
+        chunks.iter().all(|(_, max)| *max == chunk_limit(4096)),
+        "{chunks:?}"
+    );
 }

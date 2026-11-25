@@ -24,6 +24,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
+const LIMIT: u64 = u64::MAX;
 const PINNED: &str = "0xc4565b13e634c8c900a7d241ed141974e93eb6fb895e0b016a63cce36d35968c";
 const SALT: &str = "abababababababababababababababababababababababababababababababab";
 const MANIFEST_ID: &str = "QmTestManifest";
@@ -96,7 +97,7 @@ impl Blobs {
 }
 
 impl Fetcher for Blobs {
-    fn fetch(&self, cid: &str) -> Result<Vec<u8>, StoreError> {
+    fn fetch(&self, cid: &str, _: u64) -> Result<Vec<u8>, StoreError> {
         self.fetches.fetch_add(1, Ordering::SeqCst);
         self.blobs.get(cid).cloned().ok_or(StoreError::Fetch)
     }
@@ -131,7 +132,9 @@ fn prepared(chunk_size: usize, key: &[u8; 32]) -> (Manifest, Blobs, CipherCache,
     let dir = temp_dir("pipeline");
     let cache = CipherCache::new(&dir).expect("cache");
     let fetcher = Blobs::new(blobs);
-    cache.fill(&manifest.chunks, &fetcher, 3).expect("fill");
+    cache
+        .fill(&manifest.chunks, &fetcher, 3, LIMIT)
+        .expect("fill");
     (manifest, fetcher, cache, dir)
 }
 
@@ -221,7 +224,7 @@ fn a_wrong_size_or_a_missing_chunk_is_refused() {
     let dir = temp_dir("size");
     let cache = CipherCache::new(&dir).expect("cache");
     cache
-        .fill(&manifest.chunks, &Blobs::new(blobs), 2)
+        .fill(&manifest.chunks, &Blobs::new(blobs), 2, LIMIT)
         .expect("fill");
     let error = run_passes(
         start(&module, &manifest),
@@ -256,15 +259,19 @@ fn chunks_are_fetched_once_and_a_failed_fetch_stops_the_fill() {
     let fetcher = Blobs::new(blobs);
     let dir = temp_dir("fetch");
     let cache = CipherCache::new(&dir).expect("cache");
-    cache.fill(&manifest.chunks, &fetcher, 4).expect("fill");
+    cache
+        .fill(&manifest.chunks, &fetcher, 4, LIMIT)
+        .expect("fill");
     assert_eq!(fetcher.fetches.load(Ordering::SeqCst), count);
-    cache.fill(&manifest.chunks, &fetcher, 4).expect("again");
+    cache
+        .fill(&manifest.chunks, &fetcher, 4, LIMIT)
+        .expect("again");
     assert_eq!(fetcher.fetches.load(Ordering::SeqCst), count);
     let failing = Blobs::new(HashMap::new());
     let other = temp_dir("fail");
     let error = CipherCache::new(&other)
         .expect("cache")
-        .fill(&manifest.chunks, &failing, 2)
+        .fill(&manifest.chunks, &failing, 2, LIMIT)
         .expect_err("fails");
     assert!(matches!(error, StoreError::Fetch));
     assert!(
@@ -304,7 +311,7 @@ fn a_chunk_shorter_than_a_tag_is_refused() {
     let dir = temp_dir("short");
     let error = CipherCache::new(&dir)
         .expect("cache")
-        .fill(&manifest.chunks, &Blobs::new(blobs), 2)
+        .fill(&manifest.chunks, &Blobs::new(blobs), 2, LIMIT)
         .expect_err("short");
     assert!(matches!(error, StoreError::TooShort));
     std::fs::remove_dir_all(dir).expect("cleanup");

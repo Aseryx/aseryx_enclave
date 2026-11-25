@@ -54,7 +54,7 @@ fn the_job_changes_the_attested_bytes() {
 /// Every error code round-trips through its text and serde, and nothing else parses.
 #[test]
 fn error_codes_round_trip_and_unknown_text_is_refused() {
-    assert_eq!(ErrorCode::ALL.len(), 9);
+    assert_eq!(ErrorCode::ALL.len(), 11);
     for code in ErrorCode::ALL {
         assert_eq!(code.to_string().parse::<ErrorCode>(), Ok(code));
         assert_eq!(

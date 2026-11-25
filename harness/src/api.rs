@@ -2,7 +2,7 @@
 
 use crate::claim::{ClaimError, JobSource};
 use crate::consent::Bytes32;
-use crate::job::{ApiError, JobApi, JobInputs};
+use crate::job::{ApiError, Job, JobApi};
 use crate::runtime_data::RuntimeData;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -117,7 +117,7 @@ impl ApiClient {
 }
 
 impl JobApi for ApiClient {
-    fn job(&self, token: &str, runtime_data: &str) -> Result<JobInputs, ApiError> {
+    fn job(&self, token: &str, runtime_data: &str) -> Result<Job, ApiError> {
         let mut response =
             self.post(&json!({"action": "job", "token": token, "runtimeData": runtime_data}))?;
         response.body_mut().read_json().map_err(|_| ApiError)

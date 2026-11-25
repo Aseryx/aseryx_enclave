@@ -20,13 +20,16 @@ use crate::result::{
     JobFacts, Proof, appraisal_result, classify_count, error_result, sign_result, threshold_answer,
     threshold_refusal,
 };
-use crate::store::{CipherCache, Fetcher};
+use crate::store::{CipherCache, Fetcher, MAX_MANIFEST_BYTES, UrlFetcher, chunk_limit};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-/// The kinds of job this workload runs. Disputes run here in a later phase.
+mod dispute;
+pub use dispute::{DisputeCheck, DisputeInputs, DisputeType, Evidence};
+
+/// The kinds of job over a dataset this workload runs. A dispute is [`Job::Dispute`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum JobKind {
@@ -76,6 +79,27 @@ pub struct JobInputs {
     pub encrypted_label: Option<String>,
 }
 
+/// What the API's `job` action returns: the inputs of a dataset job, or of a dispute.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Job {
+    /// An appraisal or a threshold job over a registered dataset.
+    Data(Box<JobInputs>),
+    /// A check of a buyer's evidence.
+    Dispute(Box<DisputeInputs>),
+}
+
+impl<'de> Deserialize<'de> for Job {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = Value::deserialize(deserializer)?;
+        let parsed = if value["kind"] == "dispute" {
+            serde_json::from_value(value).map(|inputs| Self::Dispute(Box::new(inputs)))
+        } else {
+            serde_json::from_value(value).map(|inputs| Self::Data(Box::new(inputs)))
+        };
+        parsed.map_err(serde::de::Error::custom)
+    }
+}
+
 /// Why the API could not be asked or did not answer.
 #[derive(Debug, Clone, Copy, thiserror::Error, PartialEq, Eq)]
 #[error("the API did not answer")]
@@ -88,7 +112,7 @@ pub trait JobApi {
     /// # Errors
     ///
     /// [`ApiError`] if the API refuses or does not answer.
-    fn job(&self, token: &str, runtime_data: &str) -> Result<JobInputs, ApiError>;
+    fn job(&self, token: &str, runtime_data: &str) -> Result<Job, ApiError>;
 
     /// Posts a result body (`action`, `token` and `runtimeData` are added by the caller).
     ///
@@ -127,6 +151,8 @@ pub struct Services<'a> {
     pub chain: &'a dyn ChainReader,
     /// Fetches the manifest and the chunks.
     pub fetcher: &'a dyn Fetcher,
+    /// Fetches a dispute's evidence from the signed URLs the API gives.
+    pub evidence: &'a dyn UrlFetcher,
     /// Holds the ciphertext chunks.
     pub cache: &'a CipherCache,
     /// The appraisal engine.
@@ -254,7 +280,9 @@ fn verify_consent(
         return Err(ErrorCode::HashMismatch);
     }
     let manifest_text = read(
-        services.fetcher.fetch(&record.manifest_cid),
+        services
+            .fetcher
+            .fetch(&record.manifest_cid, MAX_MANIFEST_BYTES),
         ErrorCode::FetchFailed,
     )?;
     let manifest = read(
@@ -297,22 +325,25 @@ fn fresh_token(services: &Services<'_>, claimed: &Claimed) -> Result<String, Err
     )
 }
 
-/// Has the decrypt action release the dataset key to this workload and opens it.
+/// Has the decrypt action release a key to this workload and opens it: the dataset key (`field` is `sealed`) or a
+/// dispute's evidence key (`evidenceSealed`), sealed to the action by the owner or the buyer.
 fn release_key(
     services: &Services<'_>,
     claimed: &Claimed,
-    verified: &Verified,
+    field: &str,
+    sealed: &Value,
+    digest: &Bytes32,
 ) -> Result<[u8; 32], ErrorCode> {
     // The API builds every other parameter of the action from the job's own record; only the sealed key is the container's.
-    let request = json!({
+    let mut request = json!({
         "action": "decrypt",
         "token": fresh_token(services, claimed)?,
         "runtimeData": STANDARD.encode(claimed.runtime_data.to_bytes()),
-        "sealed": verified.manifest.key_wrap,
     });
+    request[field] = sealed.clone();
     let sealed = read(services.releaser.release(&request), ErrorCode::KeyDenied)?;
     read(
-        open_attested_response(&claimed.response_key, &sealed, &verified.digest),
+        open_attested_response(&claimed.response_key, &sealed, digest),
         ErrorCode::KeyDenied,
     )
 }
@@ -474,39 +505,63 @@ fn threshold_for(
     }
 }
 
+/// The results of a job, ready to be signed and posted.
+enum Outcome {
+    Data(Vec<Value>, JobKind),
+    Dispute(Value),
+}
+
 /// Everything after the claim, up to the results ready to be signed and posted.
-fn execute(services: &Services<'_>, claimed: &Claimed) -> Result<(Vec<Value>, JobKind), ErrorCode> {
+fn execute(services: &Services<'_>, claimed: &Claimed) -> Result<Outcome, ErrorCode> {
     let runtime = STANDARD.encode(claimed.runtime_data.to_bytes());
-    let inputs = read(
+    match read(
         services.api.job(&claimed.token, &runtime),
         ErrorCode::FetchFailed,
+    )? {
+        Job::Data(inputs) => execute_data(services, claimed, &inputs)
+            .map(|(results, kind)| Outcome::Data(results, kind)),
+        Job::Dispute(inputs) => dispute::run(services, claimed, &inputs).map(Outcome::Dispute),
+    }
+}
+
+/// An appraisal or threshold job, up to the results ready to be signed and posted.
+fn execute_data(
+    services: &Services<'_>,
+    claimed: &Claimed,
+    inputs: &JobInputs,
+) -> Result<(Vec<Value>, JobKind), ErrorCode> {
+    let verified = verify_consent(services, claimed, inputs)?;
+    let mut key = release_key(
+        services,
+        claimed,
+        "sealed",
+        &verified.manifest.key_wrap,
+        &verified.digest,
     )?;
-    let verified = verify_consent(services, claimed, &inputs)?;
-    let mut key = release_key(services, claimed, &verified)?;
     let outcome = (|| {
         read(
             services.cache.fill(
                 &verified.manifest.chunks,
                 services.fetcher,
                 services.parallel_fetches,
+                chunk_limit(verified.manifest.chunk_size),
             ),
             ErrorCode::FetchFailed,
         )?;
         match inputs.kind {
             JobKind::Appraisal => appraise(services, &verified, &key),
-            JobKind::Threshold => threshold(services, &inputs, &verified, &key),
+            JobKind::Threshold => threshold(services, inputs, &verified, &key),
         }
     })();
     key.fill(0);
     Ok((outcome?, inputs.kind))
 }
 
-fn post(
-    services: &Services<'_>,
-    claimed: &Claimed,
-    kind: JobKind,
-    results: &[Value],
-) -> Result<(), ErrorCode> {
+fn post(services: &Services<'_>, claimed: &Claimed, outcome: &Outcome) -> Result<(), ErrorCode> {
+    let (kind, results) = match outcome {
+        Outcome::Data(results, kind) => (Some(*kind), results.as_slice()),
+        Outcome::Dispute(result) => (None, std::slice::from_ref(result)),
+    };
     let runtime = STANDARD.encode(claimed.runtime_data.to_bytes());
     let signed = results
         .iter()
@@ -519,14 +574,18 @@ fn post(
     let token = fresh_token(services, claimed)?;
     let mut body = json!({"action": "result", "token": token, "runtimeData": runtime});
     match kind {
-        JobKind::Appraisal => {
-            body["kind"] = json!("appraisal");
-            body["result"] = signed[0]["result"].clone();
-            body["signature"] = signed[0]["signature"].clone();
-        }
-        JobKind::Threshold => {
+        Some(JobKind::Threshold) => {
             body["kind"] = json!("threshold");
             body["results"] = Value::Array(signed);
+        }
+        Some(JobKind::Appraisal) | None => {
+            body["kind"] = json!(if kind.is_some() {
+                "appraisal"
+            } else {
+                "dispute"
+            });
+            body["result"] = signed[0]["result"].clone();
+            body["signature"] = signed[0]["signature"].clone();
         }
     }
     read(services.api.post_result(&body), ErrorCode::UploadFailed)
@@ -552,8 +611,8 @@ fn post_error(services: &Services<'_>, claimed: &Claimed, code: ErrorCode) {
 /// result, best effort.
 pub fn run_job(services: &Services<'_>) -> Result<(), ErrorCode> {
     let claimed = claim_job(services.attestor, services.source, services.memory_gb)?;
-    let outcome = execute(services, &claimed)
-        .and_then(|(results, kind)| post(services, &claimed, kind, &results));
+    let outcome =
+        execute(services, &claimed).and_then(|outcome| post(services, &claimed, &outcome));
     if let Err(code) = outcome {
         post_error(services, &claimed, code);
         return Err(code);

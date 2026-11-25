@@ -7,8 +7,9 @@ use aseryx_enclave_harness::error_code::ErrorCode;
 use aseryx_enclave_harness::keys::{ResultKey, verify_result_signature};
 use aseryx_enclave_harness::label::seal_label_with_iv;
 use aseryx_enclave_harness::result::{
-    JobFacts, Proof, Refusal, ResultError, appraisal_result, classify_count, error_result,
-    sign_result, threshold_answer, threshold_refusal,
+    DisputeFacts, JobFacts, Proof, Refusal, ResultError, appraisal_result, classify_count,
+    error_result, label_dispute_result, sign_result, threshold_answer, threshold_dispute_result,
+    threshold_refusal,
 };
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -397,5 +398,186 @@ fn decimal_conversion_round_trips() {
         "115792089237316195423570985008687907853269984665640564039457584007913129639935",
     ] {
         assert_eq!(Uint256::parse(text).expect("parse").to_decimal(), text);
+    }
+}
+
+fn dispute_facts() -> DisputeFacts {
+    DisputeFacts {
+        job_id: Bytes32([0xd8; 32]),
+        dispute_id: "41".to_owned(),
+        workload_identity: Bytes32([0xf6; 32]),
+        family: "tabular".to_owned(),
+        rules_version: "v12.0".to_owned(),
+        token_id: "7".to_owned(),
+        dataset: "0123456789abcdef0123456789abcdef".to_owned(),
+        buyer: "0x1234567890abcdef1234567890abcdef12345678".to_owned(),
+        evidence_hash: Bytes32([0xee; 32]),
+        engine_version: "0.15.1".to_owned(),
+        engine_module_sha256: Bytes32::parse(PINNED).expect("pin"),
+    }
+}
+
+/// A label dispute's result has exactly the agreed fields, the engine's hashes as given, and is canonical.
+#[test]
+fn a_label_dispute_result_has_exactly_the_agreed_fields() {
+    let engine = json!({
+        "plaintext_hash": "111", "label_hash": "222", "inputs_commitment": "333", "error": null,
+    })
+    .to_string();
+    let result = label_dispute_result(&dispute_facts(), &engine).expect("result");
+    assert_eq!(
+        keys(&result),
+        [
+            "buyer",
+            "disputeId",
+            "disputeType",
+            "engineModuleSha256",
+            "engineVersion",
+            "error",
+            "evidenceHash",
+            "family",
+            "inputsCommitment",
+            "jobId",
+            "kind",
+            "labelHash",
+            "dataset",
+            "plaintextHash",
+            "rulesVersion",
+            "tokenId",
+            "v",
+            "workloadIdentity",
+        ]
+        .iter()
+        .copied()
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>()
+    );
+    assert_eq!(result["v"], 1);
+    assert_eq!(result["kind"], "dispute");
+    assert_eq!(result["disputeType"], "label_mismatch");
+    assert_eq!(result["disputeId"], "41");
+    assert_eq!(
+        result["buyer"],
+        "0x1234567890abcdef1234567890abcdef12345678"
+    );
+    assert_eq!(result["evidenceHash"], format!("0x{}", "ee".repeat(32)));
+    assert_eq!(result["plaintextHash"], "111");
+    assert_eq!(result["labelHash"], "222");
+    assert_eq!(result["inputsCommitment"], "333");
+    assert_eq!(result["error"], Value::Null);
+    assert!(result_digest(&result).is_ok());
+}
+
+/// A label that the file does not give carries nulls and the engine's reason.
+#[test]
+fn a_label_dispute_that_cannot_be_reproduced_carries_the_reason() {
+    let engine = json!({
+        "plaintext_hash": "111", "label_hash": null, "inputs_commitment": null, "error": "the label's format",
+    })
+    .to_string();
+    let result = label_dispute_result(&dispute_facts(), &engine).expect("result");
+    assert_eq!(result["labelHash"], Value::Null);
+    assert_eq!(result["inputsCommitment"], Value::Null);
+    assert_eq!(result["error"], "the label's format");
+    assert!(result_digest(&result).is_ok());
+}
+
+/// A threshold dispute's result has exactly the agreed fields; the band and pass are null when the check was not
+/// answerable.
+#[test]
+fn a_threshold_dispute_result_has_exactly_the_agreed_fields() {
+    let check = Bytes32([0xc1; 32]);
+    let answered = json!({
+        "plaintext_hash": "111", "band": 4, "passed": true, "answerable": true, "error": null,
+    })
+    .to_string();
+    let result = threshold_dispute_result(&dispute_facts(), &check, &answered).expect("result");
+    let mut expected = vec![
+        "band",
+        "buyer",
+        "checkHash",
+        "dataset",
+        "disputeId",
+        "disputeType",
+        "engineModuleSha256",
+        "engineVersion",
+        "error",
+        "evidenceHash",
+        "family",
+        "jobId",
+        "kind",
+        "passed",
+        "plaintextHash",
+        "rulesVersion",
+        "tokenId",
+        "v",
+        "workloadIdentity",
+    ];
+    expected.sort_unstable();
+    assert_eq!(keys(&result), expected);
+    assert_eq!(result["disputeType"], "false_threshold");
+    assert_eq!(result["checkHash"], check.to_string());
+    assert_eq!(
+        (result["band"].as_u64(), result["passed"].as_bool()),
+        (Some(4), Some(true))
+    );
+    assert_eq!(result["error"], Value::Null);
+    let unanswerable = json!({
+        "plaintext_hash": "111", "band": null, "passed": null, "answerable": false, "error": "too few rows",
+    })
+    .to_string();
+    let result = threshold_dispute_result(&dispute_facts(), &check, &unanswerable).expect("result");
+    assert_eq!(
+        (&result["band"], &result["passed"]),
+        (&Value::Null, &Value::Null)
+    );
+    assert_eq!(result["error"], "too few rows");
+    assert!(result_digest(&result).is_ok());
+}
+
+/// Engine output without what a dispute result needs, or with a field of the wrong type, is refused.
+#[test]
+fn engine_output_a_dispute_result_cannot_use_is_refused() {
+    let facts = dispute_facts();
+    for bad in [
+        "not json",
+        "{}",
+        r#"{"plaintext_hash": 1}"#,
+        r#"{"plaintext_hash": "1", "label_hash": 2}"#,
+        r#"{"plaintext_hash": "1", "label_hash": "2", "inputs_commitment": 3}"#,
+        r#"{"plaintext_hash": "1", "label_hash": "2", "inputs_commitment": "3", "error": 4}"#,
+        r#"{"plaintext_hash": "1", "label_hash": "2", "inputs_commitment": "3"}"#,
+        r#"{"plaintext_hash": "1", "inputs_commitment": "3", "error": null}"#,
+        r#"{"plaintext_hash": "1", "label_hash": "2", "error": null}"#,
+    ] {
+        assert!(
+            matches!(
+                label_dispute_result(&facts, bad),
+                Err(ResultError::Engine(_))
+            ),
+            "{bad}"
+        );
+    }
+    let check = Bytes32([1; 32]);
+    for bad in [
+        "not json",
+        "{}",
+        r#"{"plaintext_hash": 1, "band": null, "passed": null, "error": null}"#,
+        r#"{"plaintext_hash": "1", "band": "4", "passed": null, "error": null}"#,
+        r#"{"plaintext_hash": "1", "band": 4, "passed": "yes", "error": null}"#,
+        r#"{"plaintext_hash": "1", "band": 4.5, "passed": true, "error": null}"#,
+        r#"{"plaintext_hash": "1", "band": 4, "passed": true, "error": 5}"#,
+        r#"{"plaintext_hash": "1", "band": 4, "passed": true}"#,
+        r#"{"plaintext_hash": "1", "passed": true, "error": null}"#,
+        r#"{"plaintext_hash": "1", "band": 4, "error": null}"#,
+    ] {
+        assert!(
+            matches!(
+                threshold_dispute_result(&facts, &check, bad),
+                Err(ResultError::Engine(_))
+            ),
+            "{bad}"
+        );
     }
 }

@@ -1,4 +1,4 @@
-//! The signed results a workload posts: an appraisal, a threshold answer per check, or an error code.
+//! The signed results a workload posts: an appraisal, a threshold answer per check, a dispute check, or an error code.
 //!
 //! A result is a flat object of strings, booleans and small integers (the engine's snake_case parts travel as JSON text
 //! inside a string field), so it is canonical JSON and the secp256k1 result key signs its digest. The API recomputes the
@@ -290,4 +290,126 @@ pub fn sign_result(result: &Value, key: &ResultKey) -> Result<String, ResultErro
         "0x{}",
         hex::encode(key.sign(&result_digest(result)?))
     ))
+}
+
+/// What the workload knows about a dispute job, the same for each result it posts.
+#[derive(Debug, Clone)]
+pub struct DisputeFacts {
+    /// The job id.
+    pub job_id: Bytes32,
+    /// The dispute id, a decimal number.
+    pub dispute_id: String,
+    /// The workload identity the consent names.
+    pub workload_identity: Bytes32,
+    /// The appraisal family.
+    pub family: String,
+    /// The rules version.
+    pub rules_version: String,
+    /// The Digital Key token id.
+    pub token_id: String,
+    /// The dataset's registry id.
+    pub dataset: String,
+    /// The buyer's wallet, `0x` and 40 lower-case hex digits.
+    pub buyer: String,
+    /// The SHA-256 of the evidence plaintext, which the consent names and the workload checked.
+    pub evidence_hash: Bytes32,
+    /// The engine module's version.
+    pub engine_version: String,
+    /// The SHA-256 of the engine module that ran.
+    pub engine_module_sha256: Bytes32,
+}
+
+fn dispute_base(facts: &DisputeFacts, dispute_type: &str) -> Map<String, Value> {
+    let mut object = Map::new();
+    object.insert("v".into(), json!(RESULT_VERSION));
+    object.insert("kind".into(), json!("dispute"));
+    object.insert("disputeType".into(), json!(dispute_type));
+    object.insert("jobId".into(), json!(facts.job_id.to_string()));
+    object.insert("disputeId".into(), json!(facts.dispute_id));
+    object.insert("family".into(), json!(facts.family));
+    object.insert("rulesVersion".into(), json!(facts.rules_version));
+    object.insert(
+        "workloadIdentity".into(),
+        json!(facts.workload_identity.to_string()),
+    );
+    object.insert("tokenId".into(), json!(facts.token_id));
+    object.insert("dataset".into(), json!(facts.dataset));
+    object.insert("buyer".into(), json!(facts.buyer));
+    object.insert(
+        "evidenceHash".into(),
+        json!(facts.evidence_hash.to_string()),
+    );
+    object.insert("engineVersion".into(), json!(facts.engine_version));
+    object.insert(
+        "engineModuleSha256".into(),
+        json!(hex::encode(facts.engine_module_sha256.0)),
+    );
+    object
+}
+
+/// A field of the engine's output that must be present, as a string or null.
+fn text_or_null(engine: &Value, name: &'static str) -> Result<Value, ResultError> {
+    match engine.get(name) {
+        Some(value @ (Value::String(_) | Value::Null)) => Ok(value.clone()),
+        _ => Err(ResultError::Engine(name)),
+    }
+}
+
+/// The signed result of a label dispute: what the engine's label check made of the evidence file. The hashes are the
+/// engine's own (decimal field elements), which the API compares with the licence's proof; `error` is the engine's
+/// reason when the label cannot be reproduced from the file.
+///
+/// # Errors
+///
+/// [`ResultError::Engine`] if the engine output lacks a field the result needs.
+pub fn label_dispute_result(facts: &DisputeFacts, engine_json: &str) -> Result<Value, ResultError> {
+    let engine: Value =
+        serde_json::from_str(engine_json).map_err(|_| ResultError::Engine("JSON"))?;
+    let mut object = dispute_base(facts, "label_mismatch");
+    object.insert(
+        "plaintextHash".into(),
+        json!(text(&engine["plaintext_hash"], "plaintext hash")?),
+    );
+    object.insert("labelHash".into(), text_or_null(&engine, "label_hash")?);
+    object.insert(
+        "inputsCommitment".into(),
+        text_or_null(&engine, "inputs_commitment")?,
+    );
+    object.insert("error".into(), text_or_null(&engine, "error")?);
+    Ok(Value::Object(object))
+}
+
+/// The signed result of a threshold dispute: the band and pass the engine's count of the disputed check gives on the
+/// evidence file, which the API compares with the answer given at the licence. `band` and `passed` are null when the
+/// check could not be answered, with the engine's reason in `error` or not.
+///
+/// # Errors
+///
+/// [`ResultError::Engine`] if the engine output lacks a field the result needs.
+pub fn threshold_dispute_result(
+    facts: &DisputeFacts,
+    check_hash: &Bytes32,
+    count_json: &str,
+) -> Result<Value, ResultError> {
+    let count: Value = serde_json::from_str(count_json).map_err(|_| ResultError::Engine("JSON"))?;
+    let band = match count.get("band") {
+        Some(Value::Null) => Value::Null,
+        Some(other) => json!(other.as_u64().ok_or(ResultError::Engine("band"))?),
+        None => return Err(ResultError::Engine("band")),
+    };
+    let passed = match count.get("passed") {
+        Some(Value::Null) => Value::Null,
+        Some(other) => json!(other.as_bool().ok_or(ResultError::Engine("passed"))?),
+        None => return Err(ResultError::Engine("passed")),
+    };
+    let mut object = dispute_base(facts, "false_threshold");
+    object.insert("checkHash".into(), json!(check_hash.to_string()));
+    object.insert(
+        "plaintextHash".into(),
+        json!(text(&count["plaintext_hash"], "plaintext hash")?),
+    );
+    object.insert("band".into(), band);
+    object.insert("passed".into(), passed);
+    object.insert("error".into(), text_or_null(&count, "error")?);
+    Ok(Value::Object(object))
 }

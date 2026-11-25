@@ -49,7 +49,7 @@ fn golden() -> Vec<u8> {
 struct Blobs(HashMap<String, Vec<u8>>);
 
 impl Fetcher for Blobs {
-    fn fetch(&self, cid: &str) -> Result<Vec<u8>, StoreError> {
+    fn fetch(&self, cid: &str, _: u64) -> Result<Vec<u8>, StoreError> {
         self.0.get(cid).cloned().ok_or(StoreError::Fetch)
     }
 }
@@ -77,7 +77,7 @@ fn encrypted(plain: &[u8], chunk_size: usize) -> (Manifest, CipherCache, PathBuf
     let dir = unique_dir("threshold");
     let cache = CipherCache::new(&dir).expect("cache");
     cache
-        .fill(&manifest.chunks, &Blobs(blobs), 3)
+        .fill(&manifest.chunks, &Blobs(blobs), 3, u64::MAX)
         .expect("fill");
     (manifest, cache, dir)
 }

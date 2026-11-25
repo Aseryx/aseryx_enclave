@@ -29,11 +29,17 @@ pub enum ErrorCode {
     ProveFailed,
     /// The signed result could not be delivered.
     UploadFailed,
+    /// A dispute's evidence is not the file the buyer consented to: it does not decrypt, or does not hash to the
+    /// consent's evidence hash.
+    EvidenceMismatch,
+    /// The label a dispute supplies is not the licence's: it does not open under the evidence key, does not hash to the
+    /// licence's label hash, or is of another appraisal family.
+    LabelMismatchEvidence,
 }
 
 impl ErrorCode {
     /// Every code, in the order the plan lists them.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 11] = [
         Self::AttestationFailed,
         Self::ClaimFailed,
         Self::KeyDenied,
@@ -43,6 +49,8 @@ impl ErrorCode {
         Self::AppraiseFailed,
         Self::ProveFailed,
         Self::UploadFailed,
+        Self::EvidenceMismatch,
+        Self::LabelMismatchEvidence,
     ];
 
     /// The code as it appears on the wire.
@@ -58,6 +66,8 @@ impl ErrorCode {
             Self::AppraiseFailed => "appraise_failed",
             Self::ProveFailed => "prove_failed",
             Self::UploadFailed => "upload_failed",
+            Self::EvidenceMismatch => "evidence_mismatch",
+            Self::LabelMismatchEvidence => "label_mismatch_evidence",
         }
     }
 }
