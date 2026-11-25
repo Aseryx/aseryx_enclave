@@ -129,7 +129,7 @@ fn an_unreachable_https_address_is_a_fetch_failure() {
 fn a_gateway_answer_longer_than_the_limit_is_refused() {
     let (url, server) = common::serve_once("200 OK", "0123456789");
     assert_eq!(
-        IpfsGateway::new(&url)
+        IpfsGateway::new(&[&url])
             .fetch("QmX", 10)
             .expect("at the limit"),
         b"0123456789"
@@ -137,7 +137,7 @@ fn a_gateway_answer_longer_than_the_limit_is_refused() {
     drop(server);
     let (url, server) = common::serve_once("200 OK", "0123456789");
     assert!(matches!(
-        IpfsGateway::new(&url).fetch("QmX", 9),
+        IpfsGateway::new(&[&url]).fetch("QmX", 9),
         Err(StoreError::Fetch)
     ));
     drop(server);
@@ -194,4 +194,56 @@ fn the_chunk_limit_covers_incompressible_data_and_stops_a_runaway_source() {
             "{size}: the limit is not tight"
         );
     }
+}
+
+/// The first gateway that answers is taken: a gateway that fails, answers an error or an over-long body is passed over,
+/// and a gateway after the one that answered is never asked.
+#[test]
+fn a_failing_gateway_falls_through_to_the_next() {
+    let dead = {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        format!("http://{}", listener.local_addr().expect("addr"))
+    };
+    let (broken, broken_server) = common::serve_once("500 Internal Server Error", "no");
+    let (long, long_server) = common::serve_once("200 OK", "0123456789");
+    let (good, good_server) = common::serve_once("200 OK", "chunk");
+    let fetched = IpfsGateway::new(&[&dead, &broken, &long, &good])
+        .fetch("QmX", 5)
+        .expect("the fourth gateway answers");
+    assert_eq!(fetched, b"chunk");
+    assert!(
+        broken_server
+            .join()
+            .expect("broken")
+            .contains("GET /ipfs/QmX")
+    );
+    assert!(long_server.join().expect("long").contains("GET /ipfs/QmX"));
+    assert!(good_server.join().expect("good").contains("GET /ipfs/QmX"));
+}
+
+/// Gateways after the one that answered are not asked, and when none answers the fetch fails.
+#[test]
+fn the_first_answer_wins_and_no_answer_is_a_failure() {
+    let (first, first_server) = common::serve_once("200 OK", "one");
+    let spare = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    let second = format!("http://{}", spare.local_addr().expect("addr"));
+    spare.set_nonblocking(true).expect("nonblocking");
+    assert_eq!(
+        IpfsGateway::new(&[&first, &second])
+            .fetch("QmX", 10)
+            .expect("first"),
+        b"one"
+    );
+    first_server.join().expect("first");
+    assert!(spare.accept().is_err(), "the second gateway was asked");
+    let (broken, server) = common::serve_once("404 Not Found", "no");
+    assert!(matches!(
+        IpfsGateway::new(&[&broken]).fetch("QmX", 10),
+        Err(StoreError::Fetch)
+    ));
+    server.join().expect("server");
+    assert!(matches!(
+        IpfsGateway::new(&[]).fetch("QmX", 10),
+        Err(StoreError::Fetch)
+    ));
 }

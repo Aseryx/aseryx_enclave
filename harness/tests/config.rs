@@ -19,7 +19,10 @@ const REQUIRED: [(&str, &str); 8] = [
     ),
     ("ENCLAVE_CHAIN_ID", "43113"),
     ("ENCLAVE_MEMORY_GB", "4"),
-    ("ENCLAVE_IPFS_GATEWAY", "https://gateway.example"),
+    (
+        "ENCLAVE_IPFS_GATEWAYS",
+        "https://gateway.example,https://second.example",
+    ),
     (
         "ENCLAVE_ARTIFACTS_URL",
         "https://p.supabase.co/storage/v1/object/public/zk-artifacts",
@@ -56,6 +59,10 @@ fn the_required_settings_alone_give_the_defaults() {
     assert_eq!(config.cache_dir.to_str(), Some("/var/lib/enclave/cache"));
     assert_eq!(config.parallel_fetches, 8);
     assert_eq!(config.engine_deadline, Duration::from_secs(6 * 3600));
+    assert_eq!(
+        config.ipfs_gateways,
+        ["https://gateway.example", "https://second.example"]
+    );
     assert_eq!(config.chain_id, 43113);
     assert_eq!(config.memory_gb, 4);
     assert_eq!(
@@ -122,6 +129,7 @@ fn a_sidecar_without_a_port_and_a_longest_name_are_accepted() {
 /// A value that is not valid for its setting is refused, and the setting is named.
 #[test]
 fn malformed_values_are_refused() {
+    let five_gateways = ["https://g.example"; 5].join(",");
     let nine_urls = ["https://x.example"; 9].join(",");
     let too_long = "a".repeat(65);
     let cases: Vec<(&str, &str)> = vec![
@@ -146,7 +154,13 @@ fn malformed_values_are_refused() {
         ("ENCLAVE_CHAIN_ID", "-1"),
         ("ENCLAVE_CHAIN_ID", "43113 "),
         ("ENCLAVE_CHAIN_ID", "99999999999999999999999"),
-        ("ENCLAVE_IPFS_GATEWAY", "http://gateway.example"),
+        ("ENCLAVE_IPFS_GATEWAYS", "http://gateway.example"),
+        ("ENCLAVE_IPFS_GATEWAYS", "https://a.example,"),
+        (
+            "ENCLAVE_IPFS_GATEWAYS",
+            "https://a.example,http://b.example",
+        ),
+        ("ENCLAVE_IPFS_GATEWAYS", &five_gateways),
         ("ENCLAVE_ARTIFACTS_URL", "gateway.example"),
         (
             "ENCLAVE_ENGINE_SHA256",

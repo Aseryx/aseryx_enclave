@@ -42,11 +42,11 @@
               "environmentVariables": [
                 {
                   "name": "ENCLAVE_API_URL",
-                  "value": "https://PLACEHOLDER.supabase.co/functions/v1/attested-appraisal"
+                  "value": "https://xjzgzsdinbjtszmwookf.supabase.co/functions/v1/attested-appraisal"
                 },
                 {
                   "name": "ENCLAVE_RPC_URLS",
-                  "value": "https://rpc-a.example/ext/bc/C/rpc,https://rpc-b.example/ext/bc/C/rpc"
+                  "value": "https://api.avax-test.network/ext/bc/C/rpc,https://avalanche-fuji-c-chain-rpc.publicnode.com,https://avalanche-fuji.drpc.org"
                 },
                 {
                   "name": "ENCLAVE_REGISTRY",
@@ -57,12 +57,12 @@
                   "value": "43113"
                 },
                 {
-                  "name": "ENCLAVE_IPFS_GATEWAY",
-                  "value": "https://gateway.example"
+                  "name": "ENCLAVE_IPFS_GATEWAYS",
+                  "value": "https://gateway.pinata.cloud,https://ipfs.filebase.io"
                 },
                 {
                   "name": "ENCLAVE_ARTIFACTS_URL",
-                  "value": "https://PLACEHOLDER.supabase.co/storage/v1/object/public/zk-artifacts"
+                  "value": "https://xjzgzsdinbjtszmwookf.supabase.co/storage/v1/object/public/zk-artifacts"
                 },
                 {
                   "name": "ENCLAVE_ENGINE_SHA256",

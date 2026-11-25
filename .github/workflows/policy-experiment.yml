@@ -1,0 +1,48 @@
+name: policy experiment
+
+# Temporary: what confcom accepts for a pattern rule on one environment variable.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  experiment:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: confcom
+        run: |
+          az extension add --name confcom --version 2.4.1 --yes
+          az confcom acipolicygen --help | head -80
+      - name: An input file with an environment rule that is a pattern
+        continue-on-error: true
+        run: |
+          mkdir -p out
+          cat > out/input.json <<'JSON'
+          {
+            "version": "1.0",
+            "containers": [
+              {
+                "name": "skr",
+                "containerImage": "mcr.microsoft.com/aci/skr:2.12",
+                "command": ["/skr.sh"],
+                "environmentRules": [
+                  {"pattern": "ENCLAVE_MEMORY_GB=([1-9]|[12][0-9]|3[0-2])", "strategy": "re2", "required": false},
+                  {"pattern": "ENCLAVE_CHAIN_ID=43113", "strategy": "string", "required": false}
+                ]
+              }
+            ]
+          }
+          JSON
+          az confcom acipolicygen --input out/input.json --disable-stdio --print-policy > out/policy.txt
+          grep -o '"pattern":"ENCLAVE[^}]*}' out/policy.txt || head -c 2000 out/policy.txt
+      - name: The same with other key names
+        continue-on-error: true
+        run: |
+          sed 's/environmentRules/environment_rules/' out/input.json > out/input2.json
+          az confcom acipolicygen --input out/input2.json --disable-stdio --print-policy > out/policy2.txt || true
+          grep -o '"pattern":"ENCLAVE[^}]*}' out/policy2.txt || head -c 1000 out/policy2.txt

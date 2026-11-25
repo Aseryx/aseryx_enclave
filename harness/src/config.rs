@@ -17,6 +17,7 @@ const DEFAULT_PARALLEL: usize = 8;
 const MAX_PARALLEL: usize = 64;
 const DEFAULT_DEADLINE_SECS: u64 = 6 * 3600;
 const MAX_RPC_URLS: usize = 8;
+const MAX_GATEWAYS: usize = 4;
 const GIB: u64 = 1 << 30;
 /// The share of the configured memory the container's cgroup must show, in percent: the platform keeps some of what a
 /// container is sold, and a gigabyte may be decimal.
@@ -53,8 +54,8 @@ pub struct Config {
     pub registry: Address,
     /// The chain the consents are signed for.
     pub chain_id: u64,
-    /// The IPFS gateway.
-    pub ipfs_gateway: String,
+    /// The IPFS gateways, tried in order.
+    pub ipfs_gateways: Vec<String>,
     /// The public circuit artifact bucket.
     pub artifacts_url: String,
     /// Where the engine module is in the image.
@@ -129,6 +130,13 @@ impl Config {
         if rpc_urls.len() > MAX_RPC_URLS {
             return Err(ConfigError::Invalid("ENCLAVE_RPC_URLS"));
         }
+        let ipfs_gateways = required("ENCLAVE_IPFS_GATEWAYS")?
+            .split(',')
+            .map(|u| https("ENCLAVE_IPFS_GATEWAYS", u))
+            .collect::<Result<Vec<_>, _>>()?;
+        if ipfs_gateways.len() > MAX_GATEWAYS {
+            return Err(ConfigError::Invalid("ENCLAVE_IPFS_GATEWAYS"));
+        }
         let parallel_fetches: usize = number(
             "ENCLAVE_PARALLEL_FETCHES",
             &optional("ENCLAVE_PARALLEL_FETCHES", &DEFAULT_PARALLEL.to_string()),
@@ -168,7 +176,7 @@ impl Config {
             registry: Address::parse(&required("ENCLAVE_REGISTRY")?)
                 .map_err(|_| ConfigError::Invalid("ENCLAVE_REGISTRY"))?,
             chain_id,
-            ipfs_gateway: https("ENCLAVE_IPFS_GATEWAY", &required("ENCLAVE_IPFS_GATEWAY")?)?,
+            ipfs_gateways,
             artifacts_url: https("ENCLAVE_ARTIFACTS_URL", &required("ENCLAVE_ARTIFACTS_URL")?)?,
             engine_path: PathBuf::from(optional("ENCLAVE_ENGINE_PATH", DEFAULT_ENGINE)),
             engine_sha256: Bytes32::parse(&required("ENCLAVE_ENGINE_SHA256")?)
