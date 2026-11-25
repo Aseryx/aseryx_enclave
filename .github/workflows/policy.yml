@@ -1,7 +1,7 @@
 name: policy
 
 # Generates the production (non-debug) confidential container policy for the release template from the image this commit
-# builds, at three container sizes, twice each. The policy hash is the workload identity an owner's consent names, so it
+# builds, at three container sizes, twice each (from the template's containers as a confcom policy config). The policy hash is the workload identity an owner's consent names, so it
 # must not depend on the size, and every ENCLAVE_* environment rule must be pinned exactly (see scripts/check-policy.py).
 # Nothing is pushed or deployed.
 
@@ -48,30 +48,26 @@ jobs:
           az extension add --name confcom --version 2.4.1 --yes
           az version --output json
 
-      - name: What confcom does with a secure environment value (the memory setting's options)
-        continue-on-error: true
-        run: |
-          mkdir -p out/experiment
-          jq '(.resources[0].properties.containers[] | select(.name == "enclave-workload") | .properties.environmentVariables[] | select(.name == "ENCLAVE_MEMORY_GB")) |= {name: .name, secureValue: .value}' \
-            release/template.json > out/experiment/secure.json
-          az confcom acipolicygen --template-file out/experiment/secure.json -y
-          jq -r '.resources[0].properties.confidentialComputeProperties.ccePolicy' out/experiment/secure.json | base64 -d > out/experiment/secure.rego
-          grep -o '"pattern":"ENCLAVE_MEMORY_GB[^}]*}' out/experiment/secure.rego || echo "no memory rule"
+      - name: The memory pattern takes 1 to 32 and nothing else
+        run: python3 scripts/check-policy.py --self-test
 
       - name: Generate the production policy for each size, twice
         run: |
+          # The template's containers are the policy config's containers; the memory setting is the one pattern rule, so
+          # the three container sizes share one policy (and so one workload identity)
           for size in 2 4 16; do
             for n in a b; do
               d="out/$size-$n"
               mkdir -p "$d"
               jq --argjson size "$size" '
                 (.resources[0].properties.containers[] | select(.name == "enclave-workload") | .properties.resources.requests.memoryInGB) = $size
-                | (.resources[0].properties.containers[] | select(.name == "enclave-workload") | .properties.environmentVariables[] | select(.name == "ENCLAVE_MEMORY_GB") | .value) = ($size | tostring)
-              ' release/template.json > "$d/template.json"
-              az confcom acipolicygen --template-file "$d/template.json" -y
-              jq -r '.resources[0].properties.confidentialComputeProperties.ccePolicy' "$d/template.json" | base64 -d > "$d/policy.rego"
+                | (.resources[0].properties.containers[] | select(.name == "enclave-workload") | .properties.environmentVariables[] | select(.name == "ENCLAVE_MEMORY_GB")) = {name: "ENCLAVE_MEMORY_GB", value: "([1-9]|[12][0-9]|3[0-2])$", regex: true}
+                | {containers: .resources[0].properties.containers}
+              ' release/template.json > "$d/config.json"
+              az confcom acipolicygen --input "$d/config.json" --disable-stdio --print-policy > "$d/policy.b64"
+              base64 -d "$d/policy.b64" > "$d/policy.rego"
               sha256sum "$d/policy.rego" | cut -d' ' -f1 | tee "$d/policy.sha256"
-              python3 scripts/check-policy.py "$d/policy.rego" "$d/template.json" engine/appraisal_core_wasm_bg.wasm.sha256
+              python3 scripts/check-policy.py "$d/policy.rego" release/template.json engine/appraisal_core_wasm_bg.wasm.sha256
             done
           done
 
