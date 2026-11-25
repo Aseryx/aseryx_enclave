@@ -40,6 +40,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 const PINNED: &str = "0xc4565b13e634c8c900a7d241ed141974e93eb6fb895e0b016a63cce36d35968c";
@@ -144,6 +145,84 @@ struct Token;
 impl Attestor for Token {
     fn attest(&self, _: &RuntimeData) -> Result<String, AttestError> {
         Ok("aaa.bbb.ccc".to_owned())
+    }
+}
+
+/// Mints a token that records the logical time it was minted at.
+struct Minting<'a>(&'a AtomicU64);
+impl Attestor for Minting<'_> {
+    fn attest(&self, _: &RuntimeData) -> Result<String, AttestError> {
+        Ok(format!("{}.x.y", self.0.load(Ordering::SeqCst)))
+    }
+}
+
+fn token_is_fresh(token: &str, clock: &AtomicU64, max_age: u64) -> bool {
+    let minted: u64 = token
+        .split('.')
+        .next()
+        .and_then(|t| t.parse().ok())
+        .unwrap_or(0);
+    clock.load(Ordering::SeqCst).saturating_sub(minted) <= max_age
+}
+
+/// The API, refusing a token older than `max_age`; fetching a job takes 700 seconds.
+struct Expiring<'a> {
+    inner: &'a dyn JobApi,
+    clock: &'a AtomicU64,
+    max_age: u64,
+}
+impl JobApi for Expiring<'_> {
+    fn job(&self, token: &str, runtime_data: &str) -> Result<JobInputs, ApiError> {
+        if !token_is_fresh(token, self.clock, self.max_age) {
+            return Err(ApiError);
+        }
+        let inputs = self.inner.job(token, runtime_data);
+        self.clock.fetch_add(700, Ordering::SeqCst);
+        inputs
+    }
+    fn post_result(&self, body: &Value) -> Result<(), ApiError> {
+        if token_is_fresh(
+            body["token"].as_str().unwrap_or(""),
+            self.clock,
+            self.max_age,
+        ) {
+            self.inner.post_result(body)
+        } else {
+            Err(ApiError)
+        }
+    }
+}
+
+/// The relay, refusing a token older than `max_age`.
+struct ExpiringRelay<'a> {
+    inner: &'a dyn KeyReleaser,
+    clock: &'a AtomicU64,
+    max_age: u64,
+}
+impl KeyReleaser for ExpiringRelay<'_> {
+    fn release(&self, request: &Value) -> Result<SealedResponse, LitError> {
+        if token_is_fresh(
+            request["token"].as_str().unwrap_or(""),
+            self.clock,
+            self.max_age,
+        ) {
+            self.inner.release(request)
+        } else {
+            Err(LitError::Denied)
+        }
+    }
+}
+
+/// A prover that makes the logical clock run on.
+struct Slow<'a> {
+    inner: &'a dyn Prover,
+    clock: &'a AtomicU64,
+    seconds: u64,
+}
+impl Prover for Slow<'_> {
+    fn prove(&self, circuit: &str, witness: &str) -> Result<Proof, ProveError> {
+        self.clock.fetch_add(self.seconds, Ordering::SeqCst);
+        self.inner.prove(circuit, witness)
     }
 }
 
@@ -300,6 +379,7 @@ fn run(
         prove_fails: false,
         post_fails: false,
         record: world.record.clone(),
+        token_max_age: None,
     };
     tweak(&mut t);
     let dir = unique_dir("job");
@@ -314,6 +394,7 @@ fn run(
         };
         (i.consent.clone(), kind)
     });
+    let clock = AtomicU64::new(0);
     let (source, api, lit, prover) = (
         Assigns(t.claim),
         Api {
@@ -331,16 +412,44 @@ fn run(
             fails: t.prove_fails,
         },
     );
+    let (timed_attestor, timed_api, timed_lit, slow_prover) = (
+        Minting(&clock),
+        Expiring {
+            inner: &api,
+            clock: &clock,
+            max_age: t.token_max_age.unwrap_or(0),
+        },
+        ExpiringRelay {
+            inner: &lit,
+            clock: &clock,
+            max_age: t.token_max_age.unwrap_or(0),
+        },
+        Slow {
+            inner: &prover,
+            clock: &clock,
+            seconds: 700,
+        },
+    );
+    let (attestor, job_api, releaser, prover): (
+        &dyn Attestor,
+        &dyn JobApi,
+        &dyn KeyReleaser,
+        &dyn Prover,
+    ) = if t.token_max_age.is_some() {
+        (&timed_attestor, &timed_api, &timed_lit, &slow_prover)
+    } else {
+        (&Token, &api, &lit, &prover)
+    };
     let services = Services {
-        attestor: &Token,
+        attestor,
         source: &source,
-        api: &api,
-        releaser: &lit,
+        api: job_api,
+        releaser,
         chain: &chain,
         fetcher: &fetcher,
         cache: &cache,
         engine: &engine,
-        prover: &prover,
+        prover,
         engine_module_sha256: Bytes32::parse(PINNED).expect("pin"),
         domain: domain(),
         memory_gb: 4,
@@ -358,6 +467,9 @@ struct Tweaks {
     prove_fails: bool,
     post_fails: bool,
     record: DatasetRecord,
+    /// When set, tokens carry the time they were minted and the API and relay refuse one older than this many seconds,
+    /// fetching the job and proving take 700 seconds each.
+    token_max_age: Option<u64>,
 }
 
 fn posted_signature_verifies(body: &Value, result: &Value) -> bool {
@@ -776,4 +888,37 @@ fn checks_that_are_not_the_signed_checks_are_refused() {
             "{name}: a key was requested"
         );
     }
+}
+
+/// A job that outlasts the API's token age still posts its result, and a failure after that still posts its error:
+/// each call after the first carries a token minted just before it.
+#[test]
+fn a_job_longer_than_the_token_age_still_posts_its_result() {
+    let w = world();
+    assert_eq!(
+        run(&w, Ok(appraisal_inputs(&w)), |t| t.token_max_age =
+            Some(600)),
+        Ok(())
+    );
+    let posted = w.posted.lock().expect("lock").clone();
+    assert_eq!(posted.len(), 1);
+    assert_eq!(posted[0]["kind"], "appraisal");
+    assert_eq!(posted[0]["token"], "1400.x.y");
+    let released = w.released.lock().expect("lock").clone();
+    assert_eq!(released[0]["token"], "700.x.y");
+}
+
+/// The error code of a failure after a long run is posted with a fresh token, so the API can fail the job.
+#[test]
+fn an_error_after_a_long_run_is_posted_with_a_fresh_token() {
+    let w = world();
+    let outcome = run(&w, Ok(appraisal_inputs(&w)), |t| {
+        t.token_max_age = Some(600);
+        t.prove_fails = true;
+    });
+    assert_eq!(outcome, Err(ErrorCode::ProveFailed));
+    let posted = w.posted.lock().expect("lock").clone();
+    assert_eq!(posted.len(), 1);
+    assert_eq!(posted[0]["kind"], "error");
+    assert_eq!(posted[0]["token"], "1400.x.y");
 }

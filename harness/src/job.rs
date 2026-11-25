@@ -288,6 +288,15 @@ fn verify_consent(
     })
 }
 
+/// A token for the claimed job's runtime data that the API still accepts. The API refuses a token older than its limit,
+/// and a job can run longer than that, so each call after the first asks the sidecar for a new one.
+fn fresh_token(services: &Services<'_>, claimed: &Claimed) -> Result<String, ErrorCode> {
+    read(
+        services.attestor.attest(&claimed.runtime_data),
+        ErrorCode::AttestationFailed,
+    )
+}
+
 /// Has the decrypt action release the dataset key to this workload and opens it.
 fn release_key(
     services: &Services<'_>,
@@ -297,7 +306,7 @@ fn release_key(
     // The API builds every other parameter of the action from the job's own record; only the sealed key is the container's.
     let request = json!({
         "action": "decrypt",
-        "token": claimed.token,
+        "token": fresh_token(services, claimed)?,
         "runtimeData": STANDARD.encode(claimed.runtime_data.to_bytes()),
         "sealed": verified.manifest.key_wrap,
     });
@@ -507,7 +516,8 @@ fn post(
         })
         .collect::<Result<Vec<_>, _>>();
     let signed = read(signed, ErrorCode::UploadFailed)?;
-    let mut body = json!({"action": "result", "token": claimed.token, "runtimeData": runtime});
+    let token = fresh_token(services, claimed)?;
+    let mut body = json!({"action": "result", "token": token, "runtimeData": runtime});
     match kind {
         JobKind::Appraisal => {
             body["kind"] = json!("appraisal");
@@ -524,9 +534,12 @@ fn post(
 
 fn post_error(services: &Services<'_>, claimed: &Claimed, code: ErrorCode) {
     let result = error_result(&claimed.job_id, code);
-    if let Ok(signature) = sign_result(&result, &claimed.result_key) {
+    if let (Ok(signature), Ok(token)) = (
+        sign_result(&result, &claimed.result_key),
+        fresh_token(services, claimed),
+    ) {
         let runtime = STANDARD.encode(claimed.runtime_data.to_bytes());
-        let body = json!({"action": "result", "token": claimed.token, "runtimeData": runtime, "kind": "error", "result": result, "signature": signature});
+        let body = json!({"action": "result", "token": token, "runtimeData": runtime, "kind": "error", "result": result, "signature": signature});
         let _ = services.api.post_result(&body);
     }
 }

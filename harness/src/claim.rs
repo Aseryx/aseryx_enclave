@@ -45,7 +45,8 @@ pub trait JobSource {
 pub struct Claimed {
     /// The job id the API assigned.
     pub job_id: Bytes32,
-    /// Token 2: the attestation of the keys and the job id.
+    /// Token 2: the attestation of the keys and the job id, fresh at the claim. It serves the first call to the API; later
+    /// calls attest `runtime_data` again.
     pub token: String,
     /// The exact runtime data token 2 attests, which the decrypt action hashes and checks.
     pub runtime_data: RuntimeData,
