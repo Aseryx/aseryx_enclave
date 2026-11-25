@@ -261,3 +261,41 @@ fn a_dispute_response_parses_as_a_dispute_job() {
 }
 
 const JOB_ID: &str = "0xd828621b01841c9a5630937da5ffb06cf43417178bee1149d90b84ca148408fa";
+
+/// The API's dispute job responses, written by the API's own tests, parse as dispute inputs: a label dispute with no check
+/// and a threshold dispute whose check names the hash, the conditions and the failure share the engine counts with.
+#[test]
+fn the_apis_dispute_job_responses_parse_as_dispute_inputs() {
+    let Job::Dispute(label) =
+        serde_json::from_str::<Job>(&fixture("job-response-dispute-label.json")).expect("label")
+    else {
+        panic!("a dispute");
+    };
+    assert_eq!(label.dispute_type, DisputeType::LabelMismatch);
+    assert_eq!(label.check, None);
+    assert_eq!(label.dispute_id, "41");
+    assert_eq!(label.dataset, "0123456789abcdef0123456789abcdef");
+    assert_eq!(label.licence_label_hash, "777");
+    assert_eq!(label.evidence.chunk_urls.len(), 3);
+    assert!(label.evidence.manifest_url.starts_with("https://"));
+    assert!(label.evidence.label_url.starts_with("https://"));
+    assert_eq!(
+        label.evidence_sealed["format"],
+        "aseryx-sealed-evidence-key-v1"
+    );
+    let Job::Dispute(threshold) =
+        serde_json::from_str::<Job>(&fixture("job-response-dispute-threshold.json"))
+            .expect("threshold")
+    else {
+        panic!("a dispute");
+    };
+    assert_eq!(threshold.dispute_type, DisputeType::FalseThreshold);
+    let check = threshold.check.expect("a check");
+    assert_eq!(check.allowed_failure_permille, 50);
+    assert!(check.conditions.is_array());
+    // The consent in the response is the DisputeJob the buyer signed and parses as one
+    let consent: aseryx_enclave_harness::consent::DisputeJob =
+        serde_json::from_value(threshold.consent).expect("consent");
+    assert_eq!(consent.dispute_id.to_decimal(), threshold.dispute_id);
+    assert_eq!(consent.dataset.as_str(), threshold.dataset);
+}
