@@ -1,0 +1,137 @@
+{
+  "source": "aseryx_appraisal_core tests/fixtures/tabular (goldens/ and the *.witness.json files) at v0.15.1 (commit 8f75bb6f33094bb7bb0d622e3a2664da5218f807), as vendored in aseryx_zk_server tests/fixtures/tabular_v12 (commit 1039a88f8); synthetic test data, no personal data",
+  "files": [
+    {
+      "file": "bom-crlf.csv.witness.json",
+      "sha256": "f1f92acf2c27de27b02735411382bf1db77cf19779d6ef9d754ecd2dcb101e7e"
+    },
+    {
+      "file": "coarse-survey.csv.witness.json",
+      "sha256": "d7acf895391e742873d55e7f69e8ee46076417d6ceba00f9f33ed32aec01c191"
+    },
+    {
+      "file": "comma-clean.csv.witness.json",
+      "sha256": "66b56d935b78243331050a899b9df5d3f7d4d1a443689a8339d0c1ffc1c67625"
+    },
+    {
+      "file": "defects.csv.witness.json",
+      "sha256": "bda4f7375e9c7ee5edced716715ba093a9893df266c4fd3e9589d31d5d3172fe"
+    },
+    {
+      "file": "empty-and-placeholders.csv.witness.json",
+      "sha256": "ee85a1130e8720ee59d09b30d4d64c22bc69d4ebf7901ceace4624ccf30298cf"
+    },
+    {
+      "file": "formats.csv.witness.json",
+      "sha256": "9f8246e39b0bcb57920fc56281fea624c85bb4d0d3eda4ebf199401fae97954e"
+    },
+    {
+      "file": "goldens/bom-crlf.csv",
+      "sha256": "229a9d1a398b8f268f95834700d6beb9912ecefed3a29a100ef7eb7ba3973dee"
+    },
+    {
+      "file": "goldens/coarse-survey.csv",
+      "sha256": "0c2e15604ca5f2fc7f26acc17221fbb6fa8ff1501e6ae246f47eb532cdd2706f"
+    },
+    {
+      "file": "goldens/comma-clean.csv",
+      "sha256": "2cef5a9bb2b1a9395775c3dc9d33d53804851f91594d61599206befaf36a6b5d"
+    },
+    {
+      "file": "goldens/defects.csv",
+      "sha256": "883e742392eaff8c4f9c5b386e11664009ececf7074271b994e075bc440f35da"
+    },
+    {
+      "file": "goldens/empty-and-placeholders.csv",
+      "sha256": "9921d8f0702f545826fefd1a39a01e8235c48ec930610bfcc09860a5e124c5a1"
+    },
+    {
+      "file": "goldens/expected.json",
+      "sha256": "d16ebf56e1ba0717300f507493e0745cf03cbf0a45620effc989a9f8c9d03b21"
+    },
+    {
+      "file": "goldens/formats.csv",
+      "sha256": "489a4a187f2f7001d94e1cf32af3a9dd408cd434350d8e4fde8910d348c96a20"
+    },
+    {
+      "file": "goldens/nested.json",
+      "sha256": "812f48b2af618cca5b7a91e1111716ecb0111cd6f4627157ed4072b8685ae144"
+    },
+    {
+      "file": "goldens/pipe.txt",
+      "sha256": "758afef0901a2b6cde0dfebb339fbc97f631133ef75eed558ff4c06f145a4a9b"
+    },
+    {
+      "file": "goldens/quoted-multiline.csv",
+      "sha256": "74eb546169f6e6bc97c19940915f79c2af69329ae6519bfbe257826e96edac4b"
+    },
+    {
+      "file": "goldens/ragged.csv",
+      "sha256": "9faba86d45a6977f4d4f4483bfb9365dcce078c5db4a82dacd4dd866d5862669"
+    },
+    {
+      "file": "goldens/records.jsonl",
+      "sha256": "b2733df50786b66519aec547a277ed02bf1fbfd1404b1a74e2630387e2031b56"
+    },
+    {
+      "file": "goldens/repeated-header.csv",
+      "sha256": "347debeb2790b5c425d985e4324b68d947d2785d17946d8301a946201baca7e7"
+    },
+    {
+      "file": "goldens/semicolon-decimal-comma.csv",
+      "sha256": "a07627755860bcd09febdd7f9efc16d534d9a9659bfc4d1c971272468c0d2857"
+    },
+    {
+      "file": "goldens/tab.tsv",
+      "sha256": "ebe97e2708bb97d3b901e442d0e007b853db6d0dd1ec6c053799b33ed59236a3"
+    },
+    {
+      "file": "goldens/uuid-copies.csv",
+      "sha256": "dc85b5dfc2bcd6c40e1a098c7f81ed6b6659c03d2f292b8406739d133b766e7c"
+    },
+    {
+      "file": "goldens/windows-1252.csv",
+      "sha256": "9490670399289ea6dd80127a90359005bd72804683c0f97be8c0d0346979e143"
+    },
+    {
+      "file": "nested.json.witness.json",
+      "sha256": "5a18d439c4882a04c2acb62a071354ec4ee434b182635865db020e51f14cd8f9"
+    },
+    {
+      "file": "pipe.txt.witness.json",
+      "sha256": "fc7f530025102dd0ad3c9d46456f9636243e967a1bdfaf9582a4dfe96ec20e24"
+    },
+    {
+      "file": "quoted-multiline.csv.witness.json",
+      "sha256": "faf060229ac1416690e3b23c8ec0b5852788ae7cc4f2a0748fd63084c6be9051"
+    },
+    {
+      "file": "ragged.csv.witness.json",
+      "sha256": "cde8ddc9f5172fbcc7b7ab27046550868d1a64b13f0bad5fa45b30031d3047f1"
+    },
+    {
+      "file": "records.jsonl.witness.json",
+      "sha256": "e64222cb514f59ea1059bf44b638c96c45edd3a02b55596b2b02754746e4f164"
+    },
+    {
+      "file": "repeated-header.csv.witness.json",
+      "sha256": "e2a22beb3fe07003fa326714e82371b14969cff0ab6c6f78877cfa4c971f49ac"
+    },
+    {
+      "file": "semicolon-decimal-comma.csv.witness.json",
+      "sha256": "712ebbedd6b4d2813bee90e969a47d3ba244d2b89ecd21430ba925ebae220f70"
+    },
+    {
+      "file": "tab.tsv.witness.json",
+      "sha256": "1df7dd9efed84c752397e763e96b71096996d06089e7d6d8107ab2facab6eb2b"
+    },
+    {
+      "file": "uuid-copies.csv.witness.json",
+      "sha256": "586c528fb36e198a21ec798ea71950480bc1e5f541d056d0903d801371d8ff58"
+    },
+    {
+      "file": "windows-1252.csv.witness.json",
+      "sha256": "27b19942a7a9753e7f4b063ce604b072cd1303f63d2f2f67bfa665dcb44d37cf"
+    }
+  ]
+}

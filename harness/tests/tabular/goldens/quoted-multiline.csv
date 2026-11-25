@@ -1,0 +1,344 @@
+id,email,region,amount,count,note
+1000,anna.smith6@example.org,west,31.08,233,"line one, ""quoted""
+line two 0"
+1001,ben.muller12@example.org,south,53.41,259,plain 1
+1002,ben.okafor16@example.org,east,80.89,124,plain 2
+1003,hana.ng22@example.org,north,19.99,381,plain 0
+1004,anna.tanaka31@example.org,west,67.16,312,plain 1
+1005,hana.rossi35@example.org,north,24.40,10,plain 2
+1006,anna.rossi44@example.org,east,73.23,352,plain 0
+1007,fay.ng51@example.org,north,84.31,161,"line one, ""quoted""
+line two 1"
+1008,ben.muller58@example.org,north,65.34,274,plain 2
+1009,gus.muller69@example.org,north,36.66,446,plain 0
+1010,hana.tanaka74@example.org,central,45.10,410,plain 1
+1011,anna.muller79@example.org,west,50.74,489,plain 2
+1012,eli.rossi87@example.org,west,35.24,156,plain 0
+1013,ben.smith91@example.org,central,41.77,7,plain 1
+1014,eli.muller103@example.org,central,81.88,325,"line one, ""quoted""
+line two 2"
+1015,gus.muller110@example.org,north,47.84,284,plain 0
+1016,ben.okafor113@example.org,central,49.04,329,plain 1
+1017,hana.muller124@example.org,central,53.03,292,plain 2
+1018,gus.tanaka127@example.org,east,26.00,90,plain 0
+1019,cara.okafor136@example.org,north,81.47,12,plain 1
+1020,anna.tanaka146@example.org,north,19.08,249,plain 2
+1021,fay.okafor149@example.org,west,55.12,265,"line one, ""quoted""
+line two 0"
+1022,gus.okafor157@example.org,south,53.75,40,plain 1
+1023,cara.rossi166@example.org,west,33.82,461,plain 2
+1024,cara.okafor171@example.org,central,76.58,276,plain 0
+1025,dev.okafor178@example.org,south,41.08,494,plain 1
+1026,gus.okafor185@example.org,west,42.82,329,plain 2
+1027,ben.rossi191@example.org,west,41.69,147,plain 0
+1028,anna.rossi201@example.org,central,48.17,33,"line one, ""quoted""
+line two 1"
+1029,fay.tanaka208@example.org,central,50.81,490,plain 2
+1030,cara.muller212@example.org,west,39.44,363,plain 0
+1031,eli.muller218@example.org,central,65.41,361,plain 1
+1032,dev.muller227@example.org,central,53.54,50,plain 2
+1033,cara.muller233@example.org,central,39.10,454,plain 0
+1034,cara.okafor244@example.org,west,43.23,455,plain 1
+1035,hana.tanaka245@example.org,north,61.94,41,"line one, ""quoted""
+line two 2"
+1036,hana.ng256@example.org,south,47.42,28,plain 0
+1037,dev.tanaka259@example.org,north,56.78,346,plain 1
+1038,cara.okafor266@example.org,east,25.26,84,plain 2
+1039,gus.ng277@example.org,central,71.27,359,plain 0
+1040,hana.ng285@example.org,west,74.91,53,plain 1
+1041,hana.rossi288@example.org,east,4.21,213,plain 2
+1042,gus.smith299@example.org,north,59.52,441,"line one, ""quoted""
+line two 0"
+1043,anna.smith307@example.org,central,28.57,353,plain 1
+1044,ben.muller308@example.org,east,59.10,34,plain 2
+1045,eli.okafor315@example.org,central,68.08,142,plain 0
+1046,cara.rossi327@example.org,central,46.24,433,plain 1
+1047,fay.rossi333@example.org,south,35.54,164,plain 2
+1048,ben.okafor340@example.org,west,43.69,121,plain 0
+1049,fay.muller346@example.org,south,59.05,277,"line one, ""quoted""
+line two 1"
+1050,eli.muller354@example.org,north,74.84,356,plain 2
+1051,eli.rossi359@example.org,central,53.73,223,plain 0
+1052,ben.okafor365@example.org,central,49.51,473,plain 1
+1053,ben.okafor372@example.org,north,51.32,108,plain 2
+1054,anna.okafor382@example.org,south,70.78,147,plain 0
+1055,eli.rossi387@example.org,north,63.98,273,plain 1
+1056,dev.rossi397@example.org,west,53.56,264,"line one, ""quoted""
+line two 2"
+1057,gus.muller403@example.org,east,51.52,361,plain 0
+1058,hana.tanaka410@example.org,west,48.78,498,plain 1
+1059,ben.tanaka413@example.org,west,60.38,135,plain 2
+1060,ben.ng424@example.org,west,73.26,155,plain 0
+1061,hana.smith428@example.org,south,65.77,357,plain 1
+1062,anna.tanaka437@example.org,central,34.97,385,plain 2
+1063,cara.okafor445@example.org,west,48.40,190,"line one, ""quoted""
+line two 0"
+1064,eli.ng448@example.org,south,52.68,81,plain 1
+1065,cara.smith457@example.org,central,41.58,365,plain 2
+1066,gus.smith463@example.org,south,24.19,76,plain 0
+1067,dev.okafor469@example.org,north,32.96,150,plain 1
+1068,anna.okafor481@example.org,central,45.70,493,plain 2
+1069,hana.okafor489@example.org,central,62.37,348,plain 0
+1070,fay.ng492@example.org,west,52.22,30,"line one, ""quoted""
+line two 1"
+1071,eli.muller498@example.org,east,64.99,150,plain 2
+1072,anna.muller507@example.org,north,10.02,91,plain 0
+1073,fay.rossi516@example.org,west,35.94,465,plain 1
+1074,hana.muller524@example.org,central,74.83,398,plain 2
+1075,dev.okafor526@example.org,east,49.39,172,plain 0
+1076,gus.rossi536@example.org,west,58.42,42,plain 1
+1077,gus.tanaka540@example.org,east,52.67,255,"line one, ""quoted""
+line two 2"
+1078,dev.tanaka552@example.org,north,51.73,285,plain 0
+1079,dev.muller555@example.org,west,60.56,49,plain 1
+1080,ben.tanaka560@example.org,central,30.96,173,plain 2
+1081,gus.ng568@example.org,east,65.98,486,plain 0
+1082,anna.muller577@example.org,north,61.95,336,plain 1
+1083,anna.ng585@example.org,south,21.72,84,plain 2
+1084,anna.okafor592@example.org,central,40.14,235,"line one, ""quoted""
+line two 0"
+1085,cara.smith597@example.org,east,65.45,37,plain 1
+1086,cara.smith605@example.org,west,56.46,385,plain 2
+1087,hana.okafor615@example.org,central,73.43,121,plain 0
+1088,gus.smith618@example.org,west,35.06,254,plain 1
+1089,gus.rossi627@example.org,south,84.81,414,plain 2
+1090,cara.okafor634@example.org,central,90.59,131,plain 0
+1091,hana.rossi643@example.org,west,38.21,186,"line one, ""quoted""
+line two 1"
+1092,anna.okafor645@example.org,north,20.97,130,plain 2
+1093,fay.tanaka657@example.org,north,54.03,354,plain 0
+1094,gus.okafor663@example.org,central,43.46,67,plain 1
+1095,dev.smith665@example.org,west,59.56,215,plain 2
+1096,ben.tanaka676@example.org,south,48.35,126,plain 0
+1097,eli.muller685@example.org,central,83.91,477,plain 1
+1098,gus.smith689@example.org,south,71.69,79,"line one, ""quoted""
+line two 2"
+1099,gus.smith694@example.org,east,40.82,441,plain 0
+1100,hana.okafor700@example.org,north,73.81,433,plain 1
+1101,dev.muller711@example.org,west,74.47,336,plain 2
+1102,ben.smith717@example.org,east,49.86,494,plain 0
+1103,eli.rossi727@example.org,west,65.36,230,plain 1
+1104,gus.okafor728@example.org,central,77.21,105,plain 2
+1105,ben.rossi735@example.org,east,22.87,55,"line one, ""quoted""
+line two 0"
+1106,anna.smith747@example.org,south,33.63,287,plain 1
+1107,cara.okafor751@example.org,north,47.33,385,plain 2
+1108,dev.muller762@example.org,central,51.78,290,plain 0
+1109,fay.tanaka768@example.org,west,78.06,409,plain 1
+1110,hana.rossi771@example.org,east,48.59,179,plain 2
+1111,dev.tanaka783@example.org,east,39.53,281,plain 0
+1112,anna.ng788@example.org,south,46.63,95,"line one, ""quoted""
+line two 1"
+1113,fay.smith797@example.org,east,25.84,373,plain 2
+1114,dev.rossi801@example.org,north,23.15,58,plain 0
+1115,ben.muller809@example.org,south,55.74,471,plain 1
+1116,ben.muller812@example.org,west,69.83,190,plain 2
+1117,hana.okafor823@example.org,south,34.96,275,plain 0
+1118,hana.smith826@example.org,south,86.25,194,plain 1
+1119,anna.muller839@example.org,west,53.43,328,"line one, ""quoted""
+line two 2"
+1120,cara.tanaka845@example.org,north,87.90,380,plain 0
+1121,fay.rossi849@example.org,central,33.35,298,plain 1
+1122,fay.muller854@example.org,central,58.86,140,plain 2
+1123,fay.tanaka864@example.org,east,24.14,302,plain 0
+1124,cara.muller874@example.org,north,69.10,185,plain 1
+1125,eli.muller881@example.org,west,44.80,226,plain 2
+1126,gus.tanaka885@example.org,north,72.93,281,"line one, ""quoted""
+line two 0"
+1127,gus.tanaka892@example.org,south,30.68,2,plain 1
+1128,dev.muller897@example.org,south,68.40,274,plain 2
+1129,eli.smith904@example.org,west,49.06,210,plain 0
+1130,fay.smith912@example.org,south,62.73,267,plain 1
+1131,eli.ng920@example.org,central,79.41,288,plain 2
+1132,cara.muller930@example.org,central,50.08,51,plain 0
+1133,dev.rossi936@example.org,south,68.25,139,"line one, ""quoted""
+line two 1"
+1134,ben.muller938@example.org,central,24.22,402,plain 2
+1135,fay.rossi946@example.org,east,59.50,151,plain 0
+1136,cara.muller952@example.org,east,45.75,288,plain 1
+1137,ben.rossi960@example.org,north,33.85,344,plain 2
+1138,eli.muller967@example.org,west,37.69,101,plain 0
+1139,cara.muller977@example.org,north,71.07,258,plain 1
+1140,eli.tanaka984@example.org,central,61.63,10,"line one, ""quoted""
+line two 2"
+1141,hana.muller989@example.org,central,88.50,458,plain 0
+1142,hana.smith994@example.org,east,35.03,278,plain 1
+1143,dev.muller1005@example.org,west,48.94,269,plain 2
+1144,dev.ng1014@example.org,east,74.87,492,plain 0
+1145,cara.okafor1015@example.org,east,56.77,319,plain 1
+1146,dev.tanaka1025@example.org,west,56.68,256,plain 2
+1147,cara.smith1035@example.org,north,56.93,310,"line one, ""quoted""
+line two 0"
+1148,anna.tanaka1038@example.org,south,23.93,119,plain 1
+1149,ben.smith1043@example.org,west,44.57,436,plain 2
+1150,hana.rossi1051@example.org,west,99.71,264,plain 0
+1151,cara.ng1059@example.org,west,53.37,97,plain 1
+1152,eli.ng1069@example.org,east,52.48,215,plain 2
+1153,dev.ng1077@example.org,west,35.31,14,plain 0
+1154,hana.rossi1080@example.org,west,44.23,143,"line one, ""quoted""
+line two 1"
+1155,ben.okafor1091@example.org,central,17.21,308,plain 2
+1156,dev.okafor1094@example.org,central,67.79,358,plain 0
+1157,eli.muller1099@example.org,west,63.01,396,plain 1
+1158,fay.muller1107@example.org,central,30.62,374,plain 2
+1159,ben.ng1115@example.org,south,45.95,334,plain 0
+1160,fay.okafor1123@example.org,north,68.50,6,plain 1
+1161,ben.muller1128@example.org,north,28.99,268,"line one, ""quoted""
+line two 2"
+1162,cara.ng1135@example.org,west,34.51,13,plain 0
+1163,dev.okafor1147@example.org,central,42.41,298,plain 1
+1164,dev.rossi1149@example.org,east,68.76,355,plain 2
+1165,eli.muller1156@example.org,north,15.90,70,plain 0
+1166,gus.muller1163@example.org,north,73.02,62,plain 1
+1167,fay.rossi1175@example.org,north,11.32,24,plain 2
+1168,gus.okafor1179@example.org,west,20.30,242,"line one, ""quoted""
+line two 0"
+1169,cara.rossi1185@example.org,west,32.62,18,plain 1
+1170,cara.rossi1193@example.org,east,44.88,83,plain 2
+1171,eli.rossi1198@example.org,west,11.46,468,plain 0
+1172,fay.ng1208@example.org,south,39.03,224,plain 1
+1173,fay.smith1214@example.org,south,14.42,92,plain 2
+1174,anna.tanaka1224@example.org,north,49.68,74,plain 0
+1175,cara.muller1227@example.org,central,57.29,216,"line one, ""quoted""
+line two 1"
+1176,cara.ng1237@example.org,north,72.44,5,plain 2
+1177,ben.muller1241@example.org,south,36.28,122,plain 0
+1178,gus.ng1248@example.org,south,49.54,144,plain 1
+1179,hana.tanaka1259@example.org,east,26.34,159,plain 2
+1180,eli.tanaka1260@example.org,east,58.50,281,plain 0
+1181,cara.smith1271@example.org,central,36.79,492,plain 1
+1182,dev.smith1279@example.org,east,61.55,145,"line one, ""quoted""
+line two 2"
+1183,hana.muller1285@example.org,central,78.68,343,plain 0
+1184,gus.okafor1294@example.org,south,98.38,81,plain 1
+1185,fay.ng1299@example.org,north,56.67,50,plain 2
+1186,ben.rossi1305@example.org,west,83.31,421,plain 0
+1187,anna.rossi1314@example.org,north,49.65,217,plain 1
+1188,anna.ng1318@example.org,south,30.46,274,plain 2
+1189,eli.ng1326@example.org,east,49.31,365,"line one, ""quoted""
+line two 0"
+1190,hana.smith1334@example.org,north,42.63,0,plain 1
+1191,cara.rossi1341@example.org,central,75.23,164,plain 2
+1192,fay.tanaka1346@example.org,central,62.81,160,plain 0
+1193,dev.muller1354@example.org,east,22.13,447,plain 1
+1194,gus.ng1358@example.org,central,71.30,293,plain 2
+1195,gus.ng1367@example.org,west,120.62,39,plain 0
+1196,ben.smith1375@example.org,north,65.51,64,"line one, ""quoted""
+line two 1"
+1197,ben.okafor1383@example.org,east,49.84,24,plain 2
+1198,gus.smith1386@example.org,west,58.23,291,plain 0
+1199,dev.tanaka1397@example.org,east,48.53,383,plain 1
+1200,ben.smith1403@example.org,west,31.67,23,plain 2
+1201,fay.smith1408@example.org,west,49.20,270,plain 0
+1202,gus.muller1418@example.org,west,24.44,211,plain 1
+1203,eli.muller1423@example.org,north,62.56,185,"line one, ""quoted""
+line two 2"
+1204,eli.muller1433@example.org,south,35.96,125,plain 0
+1205,dev.tanaka1435@example.org,south,86.53,322,plain 1
+1206,cara.tanaka1443@example.org,central,51.93,154,plain 2
+1207,eli.smith1455@example.org,central,27.51,201,plain 0
+1208,fay.rossi1459@example.org,east,48.76,265,plain 1
+1209,cara.muller1469@example.org,east,47.36,263,plain 2
+1210,cara.rossi1474@example.org,east,22.07,67,"line one, ""quoted""
+line two 0"
+1211,dev.rossi1481@example.org,west,60.64,204,plain 1
+1212,gus.muller1486@example.org,west,62.28,434,plain 2
+1213,hana.okafor1491@example.org,north,49.38,89,plain 0
+1214,cara.ng1500@example.org,north,32.61,87,plain 1
+1215,dev.okafor1507@example.org,west,57.69,354,plain 2
+1216,dev.ng1518@example.org,north,56.54,283,plain 0
+1217,dev.smith1521@example.org,east,56.21,304,"line one, ""quoted""
+line two 1"
+1218,cara.rossi1528@example.org,west,44.65,360,plain 2
+1219,hana.tanaka1534@example.org,south,47.33,154,plain 0
+1220,fay.okafor1544@example.org,south,56.16,240,plain 1
+1221,hana.muller1551@example.org,central,42.59,497,plain 2
+1222,eli.tanaka1555@example.org,north,76.44,320,plain 0
+1223,anna.ng1565@example.org,east,77.94,205,plain 1
+1224,anna.smith1569@example.org,east,60.43,422,"line one, ""quoted""
+line two 2"
+1225,cara.smith1580@example.org,central,78.22,329,plain 0
+1226,hana.muller1588@example.org,north,33.23,93,plain 1
+1227,ben.smith1593@example.org,north,47.83,335,plain 2
+1228,anna.muller1599@example.org,west,76.59,331,plain 0
+1229,cara.okafor1606@example.org,west,39.55,116,plain 1
+1230,anna.smith1612@example.org,west,62.45,34,plain 2
+1231,eli.muller1618@example.org,west,62.43,50,"line one, ""quoted""
+line two 0"
+1232,anna.okafor1624@example.org,north,59.57,237,plain 1
+1233,anna.tanaka1637@example.org,south,56.71,155,plain 2
+1234,eli.muller1638@example.org,west,61.92,211,plain 0
+1235,ben.ng1646@example.org,south,106.61,265,plain 1
+1236,cara.okafor1655@example.org,west,50.26,304,plain 2
+1237,ben.okafor1662@example.org,south,53.69,210,plain 0
+1238,eli.rossi1667@example.org,north,46.42,48,"line one, ""quoted""
+line two 1"
+1239,gus.tanaka1678@example.org,south,51.43,497,plain 2
+1240,gus.tanaka1683@example.org,north,46.62,390,plain 0
+1241,ben.smith1693@example.org,north,37.08,4,plain 1
+1242,gus.okafor1700@example.org,central,79.37,227,plain 2
+1243,fay.tanaka1705@example.org,east,70.32,181,plain 0
+1244,cara.rossi1711@example.org,east,102.98,31,plain 1
+1245,fay.okafor1716@example.org,south,26.67,52,"line one, ""quoted""
+line two 2"
+1246,hana.smith1726@example.org,central,74.55,412,plain 0
+1247,ben.muller1734@example.org,central,36.46,112,plain 1
+1248,gus.rossi1737@example.org,central,45.98,279,plain 2
+1249,fay.muller1743@example.org,east,73.55,160,plain 0
+1250,dev.okafor1752@example.org,east,70.60,7,plain 1
+1251,anna.ng1763@example.org,central,58.74,464,plain 2
+1252,cara.okafor1765@example.org,south,30.48,157,"line one, ""quoted""
+line two 0"
+1253,gus.tanaka1771@example.org,central,55.19,267,plain 1
+1254,cara.okafor1778@example.org,north,49.57,333,plain 2
+1255,anna.okafor1788@example.org,south,51.39,369,plain 0
+1256,cara.tanaka1794@example.org,west,73.23,211,plain 1
+1257,fay.okafor1804@example.org,north,49.90,72,plain 2
+1258,gus.rossi1806@example.org,south,59.96,79,plain 0
+1259,hana.tanaka1813@example.org,central,18.71,31,"line one, ""quoted""
+line two 1"
+1260,eli.smith1823@example.org,east,97.77,192,plain 2
+1261,fay.smith1827@example.org,south,46.44,54,plain 0
+1262,dev.rossi1834@example.org,central,22.88,214,plain 1
+1263,ben.rossi1845@example.org,east,48.15,363,plain 2
+1264,fay.okafor1851@example.org,north,73.22,25,plain 0
+1265,eli.tanaka1855@example.org,east,70.29,113,plain 1
+1266,anna.ng1867@example.org,east,52.03,38,"line one, ""quoted""
+line two 2"
+1267,dev.ng1873@example.org,south,44.02,103,plain 0
+1268,anna.muller1877@example.org,north,45.31,202,plain 1
+1269,eli.smith1884@example.org,east,67.63,140,plain 2
+1270,hana.okafor1895@example.org,central,26.99,61,plain 0
+1271,gus.smith1902@example.org,south,54.73,106,plain 1
+1272,hana.tanaka1907@example.org,west,68.84,252,plain 2
+1273,hana.muller1912@example.org,east,64.22,386,"line one, ""quoted""
+line two 0"
+1274,cara.smith1918@example.org,west,82.66,66,plain 1
+1275,ben.rossi1929@example.org,north,45.34,203,plain 2
+1276,cara.ng1934@example.org,north,31.92,293,plain 0
+1277,hana.okafor1942@example.org,east,44.60,99,plain 1
+1278,eli.smith1948@example.org,east,47.51,205,plain 2
+1279,hana.tanaka1958@example.org,south,50.57,267,plain 0
+1280,cara.rossi1961@example.org,east,57.06,421,"line one, ""quoted""
+line two 1"
+1281,cara.ng1972@example.org,central,13.03,24,plain 2
+1282,cara.muller1974@example.org,south,56.98,313,plain 0
+1283,fay.okafor1983@example.org,east,31.46,123,plain 1
+1284,cara.tanaka1994@example.org,west,37.70,6,plain 2
+1285,ben.okafor2000@example.org,west,67.09,91,plain 0
+1286,hana.rossi2007@example.org,west,46.27,218,plain 1
+1287,gus.rossi2011@example.org,south,47.85,436,"line one, ""quoted""
+line two 2"
+1288,hana.tanaka2016@example.org,east,30.62,157,plain 0
+1289,ben.okafor2027@example.org,west,99.13,153,plain 1
+1290,hana.muller2035@example.org,central,39.28,467,plain 2
+1291,cara.ng2041@example.org,central,59.50,306,plain 0
+1292,eli.rossi2048@example.org,central,35.58,85,plain 1
+1293,eli.ng2052@example.org,east,54.24,176,plain 2
+1294,ben.rossi2058@example.org,east,39.59,177,"line one, ""quoted""
+line two 0"
+1295,anna.ng2068@example.org,north,66.36,174,plain 1
+1296,gus.tanaka2073@example.org,south,72.26,34,plain 2
+1297,cara.tanaka2081@example.org,north,35.14,286,plain 0
+1298,eli.smith2089@example.org,east,45.67,356,plain 1
+1299,hana.tanaka2096@example.org,east,30.81,359,plain 2
