@@ -576,14 +576,15 @@ fn a_label_that_is_not_the_licences_is_refused() {
     );
 }
 
-/// A label of another family, with no family or with a family that is not a string is refused even when its hash is the
-/// licence's, as the zk server's dispute checks refuse it.
+/// A label of another family, with no family or with a family that is not a string is refused, as the zk server's
+/// dispute checks refuse it: with the licence's own hash (the edited label does not hash to it), and, where the engine can
+/// hash the edited label, with that hash too, so the family check itself decides.
 #[test]
-fn a_label_of_another_family_is_refused_even_with_the_licences_hash() {
+fn a_label_of_another_family_is_refused() {
     let engine = engine();
     let plain = golden("comma-clean.csv");
-    let (label, _, _) = label_of(&engine, &plain);
-    let mut tested = 0;
+    let (label, licence_hash, _) = label_of(&engine, &plain);
+    let mut isolated = 0;
     for (what, edit) in [
         ("another family", Some(json!("other"))),
         ("a family that is not a string", Some(json!(7))),
@@ -597,24 +598,29 @@ fn a_label_of_another_family_is_refused_even_with_the_licences_hash() {
             }
         }
         let changed = changed.to_string();
-        // Only a label the engine can hash reaches the family check with the licence's hash
-        let Ok(hash) = engine.label_hash(&changed) else {
-            continue;
-        };
-        tested += 1;
         let ev = evidence_of(&plain, &changed);
-        let r = run(
-            inputs(&ev, &hash, DisputeType::LabelMismatch),
-            Ok(()),
-            ev.blobs.clone(),
-        );
-        assert_eq!(r.outcome, Err(ErrorCode::LabelMismatchEvidence), "{what}");
-        assert_eq!(
-            r.posted[0]["result"]["error"], "label_mismatch_evidence",
-            "{what}"
-        );
+        let mut hashes = vec![licence_hash.clone()];
+        if let Ok(own) = engine.label_hash(&changed) {
+            isolated += 1;
+            hashes.push(own);
+        }
+        for hash in hashes {
+            let r = run(
+                inputs(&ev, &hash, DisputeType::LabelMismatch),
+                Ok(()),
+                ev.blobs.clone(),
+            );
+            assert_eq!(r.outcome, Err(ErrorCode::LabelMismatchEvidence), "{what}");
+            assert_eq!(
+                r.posted[0]["result"]["error"], "label_mismatch_evidence",
+                "{what}"
+            );
+        }
     }
-    assert!(tested > 0, "the engine hashed none of the changed labels");
+    assert!(
+        isolated > 0,
+        "the family check was never reached on its own"
+    );
 }
 
 /// Evidence that cannot be fetched is `fetch_failed`.
