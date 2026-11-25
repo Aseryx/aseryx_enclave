@@ -2,7 +2,8 @@ name: policy
 
 # Generates the production (non-debug) confidential container policy for the release template from the image this commit
 # builds, at three container sizes, twice each (from the template's containers as a confcom policy config). The policy hash is the workload identity an owner's consent names, so it
-# must not depend on the size, and every ENCLAVE_* environment rule must be pinned exactly (see scripts/check-policy.py).
+# must not depend on the size, and every ENCLAVE_* variable must be allowed with exactly its value and nothing else; rules
+# are anchored (scripts/anchor-policy.py) because the policy engine matches by search (see scripts/check-policy.py).
 # Nothing is pushed or deployed.
 
 on:
@@ -11,6 +12,7 @@ on:
     paths:
       - ".github/workflows/policy.yml"
       - "scripts/check-policy.py"
+      - "scripts/anchor-policy.py"
       - "release/**"
       - "Dockerfile"
       - "Cargo.toml"
@@ -48,7 +50,7 @@ jobs:
           az extension add --name confcom --version 2.4.1 --yes
           az version --output json
 
-      - name: The memory pattern takes 1 to 32 and nothing else
+      - name: The checker sees the hole in unanchored rules and accepts anchored ones
         run: python3 scripts/check-policy.py --self-test
 
       - name: Generate the production policy for each size, twice
@@ -61,11 +63,15 @@ jobs:
               mkdir -p "$d"
               jq --argjson size "$size" '
                 (.resources[0].properties.containers[] | select(.name == "enclave-workload") | .properties.resources.requests.memoryInGB) = $size
-                | (.resources[0].properties.containers[] | select(.name == "enclave-workload") | .properties.environmentVariables[] | select(.name == "ENCLAVE_MEMORY_GB")) = {name: "ENCLAVE_MEMORY_GB", value: "([1-9]|[12][0-9]|3[0-2])$", regex: true}
+                | (.resources[0].properties.containers[] | select(.name == "enclave-workload") | .properties.environmentVariables[] | select(.name == "ENCLAVE_MEMORY_GB")) = {name: "ENCLAVE_MEMORY_GB", value: "([1-9]|[12][0-9]|3[0-2])", regex: true}
                 | {containers: .resources[0].properties.containers}
               ' release/template.json > "$d/config.json"
               az confcom acipolicygen --input "$d/config.json" --disable-stdio --print-policy > "$d/policy.b64"
-              base64 -d "$d/policy.b64" > "$d/policy.rego"
+              base64 -d "$d/policy.b64" > "$d/confcom.rego"
+              # Every regular-expression environment rule becomes ^...$: the engine's match is a search, so an unanchored
+              # rule would admit any variable whose text contains it. The deployed policy is this anchored text.
+              python3 scripts/anchor-policy.py "$d/confcom.rego" "$d/policy.rego"
+              base64 -w0 "$d/policy.rego" > "$d/policy.deploy.b64"
               sha256sum "$d/policy.rego" | cut -d' ' -f1 | tee "$d/policy.sha256"
               python3 scripts/check-policy.py "$d/policy.rego" release/template.json engine/appraisal_core_wasm_bg.wasm.sha256
             done
