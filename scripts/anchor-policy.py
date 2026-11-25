@@ -16,13 +16,11 @@ PREFIX = "containers := "
 
 
 def anchored(pattern: str) -> str:
-    if pattern.startswith("(?i)"):
-        flags, body = "(?i)", pattern[len("(?i)"):]
-    else:
-        flags, body = "", pattern
-    body = body if body.startswith("^") else "^" + body
+    flags = "(?i)" if pattern.startswith("(?i)") else ""
+    body = pattern[len(flags):]
+    body = body[1:] if body.startswith("^") else body
     body = body if body.endswith("$") else body + "$"
-    return flags + body
+    return "^" + flags + body
 
 
 def main(source: str, destination: str) -> int:
