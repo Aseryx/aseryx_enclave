@@ -6,7 +6,9 @@
 use aseryx_enclave_harness::api::{ApiClient, ApiJobSource};
 use aseryx_enclave_harness::attest::SidecarAttestor;
 use aseryx_enclave_harness::chain::RpcChain;
-use aseryx_enclave_harness::config::{Config, ConfigError, check_memory, engine_memory_bytes};
+use aseryx_enclave_harness::config::{
+    Config, ConfigError, cgroup_limit_text, check_memory, engine_memory_bytes, mem_available_bytes,
+};
 use aseryx_enclave_harness::consent::Domain;
 use aseryx_enclave_harness::engine::{EngineModule, Limits};
 use aseryx_enclave_harness::job::{Services, run_job};
@@ -15,7 +17,9 @@ use aseryx_enclave_harness::prove::{ArkProver, BucketSource, parse_pins};
 use aseryx_enclave_harness::store::{CipherCache, HttpFetcher, IpfsGateway};
 use std::process::ExitCode;
 
-const CGROUP_MEMORY_MAX: &str = "/sys/fs/cgroup/memory.max";
+const CGROUP_V2_MEMORY_MAX: &str = "/sys/fs/cgroup/memory.max";
+const CGROUP_V1_MEMORY_LIMIT: &str = "/sys/fs/cgroup/memory/memory.limit_in_bytes";
+const MEMINFO: &str = "/proc/meminfo";
 /// The circuits the workload proves with, by the SHA-256 of each artifact; part of the image, so part of the identity.
 const CIRCUIT_PINS: &str = include_str!("../circuit-pins.json");
 
@@ -30,19 +34,27 @@ fn main() -> ExitCode {
         Err(error) => return start_failure("settings", error),
     };
     let memory = config.memory_gb;
-    if let Err(error) = std::fs::read_to_string(CGROUP_MEMORY_MAX)
-        .map_err(|_| ConfigError::Memory)
-        .and_then(|text| check_memory(&text, memory))
+    let v2 = std::fs::read_to_string(CGROUP_V2_MEMORY_MAX).ok();
+    let v1 = std::fs::read_to_string(CGROUP_V1_MEMORY_LIMIT).ok();
+    if let Err(error) = cgroup_limit_text(v2.as_deref(), v1.as_deref())
+        .and_then(|limit| check_memory(limit, memory))
     {
         return start_failure("memory", error);
     }
+    let available = match std::fs::read_to_string(MEMINFO)
+        .map_err(|_| ConfigError::Memory)
+        .and_then(|text| mem_available_bytes(&text))
+    {
+        Ok(bytes) => bytes,
+        Err(error) => return start_failure("memory", error),
+    };
     let engine_bytes = match std::fs::read(&config.engine_path) {
         Ok(bytes) => bytes,
         Err(error) => return start_failure("engine module", error),
     };
     let limits = Limits {
         deadline: config.engine_deadline,
-        max_memory_bytes: engine_memory_bytes(memory),
+        max_memory_bytes: engine_memory_bytes(memory, available),
     };
     let engine = match EngineModule::load(&engine_bytes, config.engine_sha256, limits) {
         Ok(engine) => engine,

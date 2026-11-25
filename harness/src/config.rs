@@ -193,23 +193,68 @@ impl Config {
     }
 }
 
-/// Checks the container's memory against its configured size, from the text of the cgroup's `memory.max`: the cgroup
-/// must show at least 85% of `configured_gb` gibibytes, so the size the workload claims jobs with is the size it has.
+/// A cgroup limit of this many bytes or more is no limit: a cgroup v1 memory controller with no limit reports a value
+/// near 2^63.
+const NO_LIMIT_BYTES: u64 = 1 << 62;
+
+/// The text of the container's memory limit: the cgroup v2 `memory.max` when that file exists, otherwise the cgroup v1
+/// `memory.limit_in_bytes`. Azure Container Instances confidential containers run cgroup v1.
 ///
 /// # Errors
 ///
-/// [`ConfigError::Memory`] for `max` (no limit), text that is not a number, or a limit under 85% of the configured size.
-pub fn check_memory(cgroup_memory_max: &str, configured_gb: u32) -> Result<(), ConfigError> {
-    let bytes: u64 =
-        number("memory.max", cgroup_memory_max.trim()).map_err(|_| ConfigError::Memory)?;
-    let floor = u64::from(configured_gb) * GIB / 100 * MEMORY_FLOOR_PERCENT;
-    (bytes >= floor).then_some(()).ok_or(ConfigError::Memory)
+/// [`ConfigError::Memory`] when neither file could be read.
+pub fn cgroup_limit_text<'a>(
+    v2_memory_max: Option<&'a str>,
+    v1_limit_in_bytes: Option<&'a str>,
+) -> Result<&'a str, ConfigError> {
+    v2_memory_max
+        .or(v1_limit_in_bytes)
+        .ok_or(ConfigError::Memory)
 }
 
-/// The most linear memory the engine may hold: three quarters of the container's, and never more than WebAssembly
-/// allows, so the harness, the cache's page use and the prover keep the rest.
+/// Checks the container's memory against its configured size, from the text of the cgroup's limit: the cgroup must show
+/// at least 85% of `configured_gb` gibibytes, so the size the workload claims jobs with is the size it has.
+///
+/// # Errors
+///
+/// [`ConfigError::Memory`] for `max` or a value of 2^62 bytes or more (no limit), text that is not a number, or a limit
+/// under 85% of the configured size.
+pub fn check_memory(cgroup_limit: &str, configured_gb: u32) -> Result<(), ConfigError> {
+    let bytes: u64 =
+        number("memory limit", cgroup_limit.trim()).map_err(|_| ConfigError::Memory)?;
+    let floor = u64::from(configured_gb) * GIB / 100 * MEMORY_FLOOR_PERCENT;
+    (floor..NO_LIMIT_BYTES)
+        .contains(&bytes)
+        .then_some(())
+        .ok_or(ConfigError::Memory)
+}
+
+/// The memory the kernel reports as available, in bytes, from the text of `/proc/meminfo`.
+///
+/// # Errors
+///
+/// [`ConfigError::Memory`] when there is no `MemAvailable` line in kilobytes.
+pub fn mem_available_bytes(meminfo: &str) -> Result<u64, ConfigError> {
+    let line = meminfo
+        .lines()
+        .find_map(|line| line.strip_prefix("MemAvailable:"))
+        .ok_or(ConfigError::Memory)?;
+    let kilobytes = line
+        .trim()
+        .strip_suffix("kB")
+        .ok_or(ConfigError::Memory)?
+        .trim();
+    let kilobytes: u64 = number("MemAvailable", kilobytes).map_err(|_| ConfigError::Memory)?;
+    kilobytes.checked_mul(1024).ok_or(ConfigError::Memory)
+}
+
+/// The most linear memory the engine may hold: three quarters of the memory the container has, which is the smaller of
+/// its configured size and what the kernel reports as available at start (the guest keeps about a tenth of a
+/// container's memory), and never more than WebAssembly allows, so the harness, the cache's page use and the prover
+/// keep the rest.
 #[must_use]
-pub fn engine_memory_bytes(memory_gb: u32) -> usize {
-    let bytes = (u64::from(memory_gb) * GIB / 4 * 3).min(WASM_MEMORY_LIMIT);
+pub fn engine_memory_bytes(memory_gb: u32, available_bytes: u64) -> usize {
+    let usable = (u64::from(memory_gb) * GIB).min(available_bytes);
+    let bytes = (usable / 4 * 3).min(WASM_MEMORY_LIMIT);
     usize::try_from(bytes).unwrap_or(usize::MAX)
 }
