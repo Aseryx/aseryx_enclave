@@ -1,0 +1,50 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "containerGroupName": {
+      "type": "String",
+      "defaultValue": "aseryx-probe"
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.ContainerInstance/containerGroups",
+      "apiVersion": "2023-05-01",
+      "name": "[parameters('containerGroupName')]",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "containers": [
+          {
+            "name": "cgroup-probe",
+            "properties": {
+              "image": "mcr.microsoft.com/aci/skr:2.12",
+              "command": [
+                "/bin/sh",
+                "-c",
+                "echo cgroup_fs=$(stat -fc %T /sys/fs/cgroup); echo v2_memory.max=$(cat /sys/fs/cgroup/memory.max 2>&1); echo v1_limit=$(cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>&1); echo self_cgroup=$(cat /proc/self/cgroup); grep -E \"MemTotal|MemAvailable\" /proc/meminfo; df -k /tmp /var/lib; sleep 120"
+              ],
+              "environmentVariables": [],
+              "resources": {
+                "requests": {
+                  "cpu": 1,
+                  "memoryInGB": 2
+                }
+              }
+            }
+          }
+        ],
+        "osType": "Linux",
+        "restartPolicy": "Never",
+        "sku": "Confidential",
+        "confidentialComputeProperties": {
+          "ccePolicy": ""
+        }
+      },
+      "tags": {
+        "aseryx-run": "0.7",
+        "aseryx-step": "mem-probe"
+      }
+    }
+  ]
+}
