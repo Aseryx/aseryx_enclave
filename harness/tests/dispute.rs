@@ -23,6 +23,7 @@ use aseryx_enclave_harness::keys::verify_result_signature;
 use aseryx_enclave_harness::label::seal_label;
 use aseryx_enclave_harness::lit::{KeyReleaser, LitError, SealedResponse};
 use aseryx_enclave_harness::manifest::Manifest;
+use aseryx_enclave_harness::metrics::Recorder;
 use aseryx_enclave_harness::result::{Proof, classify_count};
 use aseryx_enclave_harness::runtime_data::RuntimeData;
 use aseryx_enclave_harness::store::{
@@ -340,6 +341,7 @@ fn run_on_disk(
         posted: &posted,
     };
     let urls = Urls(blobs);
+    let metrics = Recorder::new();
     let services = Services {
         attestor: &Token,
         source: &Assigns,
@@ -356,6 +358,7 @@ fn run_on_disk(
         memory_gb: 4,
         parallel_fetches: 3,
         appraisal_circuit: "tabular_appraisal_r7",
+        metrics: &metrics,
     };
     let outcome = run_job(&services);
     std::fs::remove_dir_all(dir).expect("cleanup");

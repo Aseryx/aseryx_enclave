@@ -98,6 +98,8 @@ impl Kind {
 struct MemoryCap {
     max_bytes: usize,
     denied: bool,
+    /// The largest linear memory the module has been given, in bytes.
+    peak_bytes: usize,
 }
 
 impl ResourceLimiter for MemoryCap {
@@ -109,6 +111,9 @@ impl ResourceLimiter for MemoryCap {
     ) -> wasmtime::Result<bool> {
         let allowed = desired <= self.max_bytes;
         self.denied |= !allowed;
+        if allowed {
+            self.peak_bytes = self.peak_bytes.max(desired);
+        }
         Ok(allowed)
     }
 
@@ -258,6 +263,7 @@ impl EngineModule {
             table: None,
             cap: MemoryCap {
                 max_bytes: self.limits.max_memory_bytes,
+                peak_bytes: 0,
                 denied: false,
             },
         };
@@ -493,6 +499,12 @@ pub struct Run {
 }
 
 impl Run {
+    /// The largest linear memory the engine has held, in bytes.
+    #[must_use]
+    pub fn peak_memory_bytes(&self) -> u64 {
+        self.host.store.data().cap.peak_bytes as u64
+    }
+
     /// Gives the engine the next bytes of the current pass.
     ///
     /// # Errors

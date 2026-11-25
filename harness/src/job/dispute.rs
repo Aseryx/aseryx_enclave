@@ -14,7 +14,8 @@ use crate::consent::{Address, Bytes32, DisputeJob};
 use crate::error_code::ErrorCode;
 use crate::label::open_label;
 use crate::manifest::Manifest;
-use crate::pipeline::{PipelineError, run_passes};
+use crate::metrics::Stage;
+use crate::pipeline::{PipelineError, run_passes_recorded};
 use crate::result::{DisputeFacts, label_dispute_result, threshold_dispute_result};
 use crate::store::{StoreError, UrlChunks, chunk_limit};
 use serde::Deserialize;
@@ -227,7 +228,9 @@ pub(super) fn run(
     claimed: &Claimed,
     inputs: &DisputeInputs,
 ) -> Result<Value, ErrorCode> {
-    let consent = verify_consent(services, claimed, inputs)?;
+    let consent = services
+        .metrics
+        .time(Stage::Checks, || verify_consent(services, claimed, inputs))?;
     let mut key = release_key(
         services,
         claimed,
@@ -280,8 +283,15 @@ fn check_evidence(
                 services.engine.label_check(&label),
                 ErrorCode::AppraiseFailed,
             )?;
-            let engine = run_passes(run, &manifest, key, services.cache, &expected)
-                .map_err(|e| evidence_code(&e))?;
+            let engine = run_passes_recorded(
+                run,
+                &manifest,
+                key,
+                services.cache,
+                &expected,
+                services.metrics,
+            )
+            .map_err(|e| evidence_code(&e))?;
             read(
                 label_dispute_result(facts, &engine),
                 ErrorCode::AppraiseFailed,
@@ -293,8 +303,15 @@ fn check_evidence(
                 services.engine.threshold_count(&label, &check_text(check)?),
                 ErrorCode::AppraiseFailed,
             )?;
-            let count = run_passes(run, &manifest, key, services.cache, &expected)
-                .map_err(|e| evidence_code(&e))?;
+            let count = run_passes_recorded(
+                run,
+                &manifest,
+                key,
+                services.cache,
+                &expected,
+                services.metrics,
+            )
+            .map_err(|e| evidence_code(&e))?;
             read(
                 threshold_dispute_result(facts, &check.check_hash, &count),
                 ErrorCode::AppraiseFailed,

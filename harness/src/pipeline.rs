@@ -7,12 +7,14 @@
 use crate::engine::{EngineError, Run};
 use crate::error_code::ErrorCode;
 use crate::manifest::{Chunk, Manifest};
+use crate::metrics::Recorder;
 use crate::store::{CipherCache, StoreError};
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
 use flate2::read::GzDecoder;
 use sha2::{Digest, Sha256};
 use std::io::Read;
+use std::time::{Duration, Instant};
 
 const FEED_SLICE_BYTES: usize = 1 << 20;
 
@@ -48,45 +50,71 @@ impl PipelineError {
     }
 }
 
+/// Where one pass spent its time, and nothing derived from the data's content.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PassTiming {
+    /// Time blocked on a chunk that had not landed yet.
+    pub wait: Duration,
+    /// Time in AES-GCM decryption.
+    pub decrypt: Duration,
+    /// Time in gunzip.
+    pub decompress: Duration,
+    /// Time hashing the plaintext and feeding it to the engines.
+    pub parse: Duration,
+    /// Chunks read.
+    pub chunks: u64,
+}
+
 /// Decrypts one chunk (ciphertext followed by its 16-byte tag) and streams its gunzipped plaintext to `sink`, returning
-/// the number of plaintext bytes.
+/// the number of plaintext bytes. The time spent is added to `timing`.
 fn stream_chunk(
     key: &[u8; 32],
     chunk: &Chunk,
     sealed: &[u8],
+    timing: &mut PassTiming,
     sink: &mut dyn FnMut(&[u8]) -> Result<(), PipelineError>,
 ) -> Result<u64, PipelineError> {
     let cipher = Aes256Gcm::new(key.into());
+    let began = Instant::now();
     let compressed = cipher
         .decrypt(&Nonce::from(chunk.iv), sealed)
         .map_err(|_| PipelineError::Chunk)?;
+    timing.decrypt += began.elapsed();
     let mut decoder = GzDecoder::new(compressed.as_slice());
     let mut buffer = vec![0u8; FEED_SLICE_BYTES];
     let mut total = 0u64;
     loop {
+        let began = Instant::now();
         let n = decoder
             .read(&mut buffer)
             .map_err(|_| PipelineError::Chunk)?;
+        timing.decompress += began.elapsed();
         if n == 0 {
             return Ok(total);
         }
+        let began = Instant::now();
         sink(&buffer[..n])?;
+        timing.parse += began.elapsed();
         total += n as u64;
     }
 }
 
-/// Feeds the whole dataset to every run once and returns the SHA-256 of the plaintext it fed.
+/// Feeds the whole dataset to every run once and returns the SHA-256 of the plaintext it fed. `timing` holds where the pass
+/// spent its time, up to the failure when there is one.
 fn feed_pass(
     runs: &mut [Run],
     manifest: &Manifest,
     key: &[u8; 32],
     cache: &CipherCache,
+    timing: &mut PassTiming,
 ) -> Result<[u8; 32], PipelineError> {
     let mut hasher = Sha256::new();
     let mut total = 0u64;
     for chunk in &manifest.chunks {
-        let (sealed, _waited) = cache.read_waiting(&chunk.cid)?;
-        total += stream_chunk(key, chunk, &sealed, &mut |slice| {
+        let (sealed, waited) = cache.read_waiting(&chunk.cid)?;
+        timing.wait += waited;
+        timing.chunks += 1;
+        total += stream_chunk(key, chunk, &sealed, timing, &mut |slice| {
             hasher.update(slice);
             runs.iter_mut()
                 .try_for_each(|run| run.feed(slice))
@@ -109,14 +137,35 @@ fn feed_pass(
 /// [`PipelineError`]: a chunk that is missing, tampered with or the wrong size, a pass that does not hash to `expected`,
 /// an engine failure, or runs that ask for different numbers of passes.
 pub fn run_passes_many(
-    mut runs: Vec<Run>,
+    runs: Vec<Run>,
     manifest: &Manifest,
     key: &[u8; 32],
     cache: &CipherCache,
     expected: &[u8; 32],
 ) -> Result<Vec<String>, PipelineError> {
+    run_passes_many_recorded(runs, manifest, key, cache, expected, &Recorder::new())
+}
+
+/// As [`run_passes_many`], and records each pass's timing and the engines' memory in `recorder` as the pass ends, so a
+/// pass that fails is in the record up to its failure.
+///
+/// # Errors
+///
+/// As [`run_passes_many`].
+pub fn run_passes_many_recorded(
+    mut runs: Vec<Run>,
+    manifest: &Manifest,
+    key: &[u8; 32],
+    cache: &CipherCache,
+    expected: &[u8; 32],
+    recorder: &Recorder,
+) -> Result<Vec<String>, PipelineError> {
     loop {
-        if feed_pass(&mut runs, manifest, key, cache)? != *expected {
+        let mut timing = PassTiming::default();
+        let fed = feed_pass(&mut runs, manifest, key, cache, &mut timing);
+        recorder.record_pass(timing);
+        recorder.record_engine_peak(runs.iter().map(Run::peak_memory_bytes).sum());
+        if fed? != *expected {
             return Err(PipelineError::HashMismatch);
         }
         let more = runs
@@ -149,6 +198,23 @@ pub fn run_passes(
     cache: &CipherCache,
     expected: &[u8; 32],
 ) -> Result<String, PipelineError> {
-    let mut results = run_passes_many(vec![run], manifest, key, cache, expected)?;
+    run_passes_recorded(run, manifest, key, cache, expected, &Recorder::new())
+}
+
+/// As [`run_passes`], recording as [`run_passes_many_recorded`] does.
+///
+/// # Errors
+///
+/// As [`run_passes_many`].
+pub fn run_passes_recorded(
+    run: Run,
+    manifest: &Manifest,
+    key: &[u8; 32],
+    cache: &CipherCache,
+    expected: &[u8; 32],
+    recorder: &Recorder,
+) -> Result<String, PipelineError> {
+    let mut results =
+        run_passes_many_recorded(vec![run], manifest, key, cache, expected, recorder)?;
     Ok(results.remove(0))
 }
