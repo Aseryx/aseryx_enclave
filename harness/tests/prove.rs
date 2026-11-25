@@ -521,3 +521,46 @@ fn inputs_that_do_not_match_the_circuit_are_refused() {
         );
     }
 }
+
+/// The verification key hash of each production circuit row (`public.circuit.verification_key_hash`, read 2026-11-24).
+/// The API hashes the raw bytes of `verification_key.json` with SHA-256, as the pins do.
+const PRODUCTION_ROWS: [(&str, &str); 6] = [
+    (
+        "tabular_appraisal_r7",
+        "986426016d94b3e7a28f274b0c8ffa5e432bee4bd5637b6b51ffbf705418085d",
+    ),
+    (
+        "threshold_r2_c1",
+        "d7bf82da36abb2f66f956e84d115f29f8cf51e45bc29ea845881a86cf4cc41b5",
+    ),
+    (
+        "threshold_r2_c2",
+        "5701c3dd3f8c873b46a058d7b98e53ae8e751e80aa39cdb3b3e6e81694e2a0b6",
+    ),
+    (
+        "threshold_r2_c3",
+        "f5b733b4296ebebdd815fd0e4f87c322d679638eda4f506e4d16ca9860d50504",
+    ),
+    (
+        "threshold_r2_c4",
+        "d69e01024155922b8017b75159da8b15843238eb3b3ac6cc4454dc725e3f74d5",
+    ),
+    (
+        "threshold_r2_c5",
+        "63ec38384d36768e9f8f1f1a5117f66f3064ad6a53e376165410af96c23ae3e6",
+    ),
+];
+
+/// The pinned verification keys, and the files fetched for them, hash to what the API's circuit rows record.
+#[test]
+fn the_pinned_verification_keys_are_the_production_circuits() {
+    let pins = parse_pins(PINS).expect("pins");
+    assert_eq!(pins.len(), PRODUCTION_ROWS.len());
+    for (name, row) in PRODUCTION_ROWS {
+        let fetched = source()
+            .artifact(name, ArtifactFile::VerificationKey)
+            .expect("verification key");
+        assert_eq!(hex::encode(Sha256::digest(&fetched)), row, "{name} file");
+        assert_eq!(hex::encode(pins[name].verification_key), row, "{name} pin");
+    }
+}
