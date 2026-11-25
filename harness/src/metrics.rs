@@ -1,7 +1,7 @@
 //! What a job cost, measured by the workload and posted beside its result as a signed object of its own.
 //!
 //! With the container's stdio off, nothing else can see where a job spent its time. The numbers are wall times per stage,
-//! counts, bytes and peak memory; none is derived from the data's content. Every value is an integer of at most 2^53 and
+//! counts, bytes and peak memory; none is derived from the data's content. Every value is an integer of at most 2^53 - 1 and
 //! every field name is letters and digits, as the canonical JSON the result key signs requires.
 
 use crate::pipeline::PassTiming;
@@ -14,7 +14,8 @@ use std::time::{Duration, Instant};
 pub const METRICS_VERSION: u64 = 1;
 /// The most passes the object lists; the passes after the last listed one are added into it.
 pub const MAX_PASSES: usize = 16;
-const MAX_VALUE: u64 = 1 << 53;
+/// The largest integer the canonical JSON that is signed can carry: 2^53 - 1.
+const MAX_VALUE: u64 = (1 << 53) - 1;
 
 /// A stage of a job whose wall time is recorded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
