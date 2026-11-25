@@ -1,6 +1,8 @@
 name: image
 
-# Builds the workload image twice from scratch and fails unless both builds have the same digest. Nothing is pushed.
+# Builds the workload image twice from scratch and fails unless both builds have the same digest. A push to a branch
+# pushes nothing. A manual run with `publish` set also copies the verified image to the public GitHub Container
+# Registry under a tag of the commit and checks that the registry holds the digest the builds produced.
 
 on:
   push:
@@ -16,6 +18,11 @@ on:
       - "harness/circuit-pins.json"
       - "engine/**"
   workflow_dispatch:
+    inputs:
+      publish:
+        description: "Push the verified image to ghcr.io/aseryx/aseryx-enclave"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -56,3 +63,44 @@ jobs:
           name: image-digest
           path: out/digest-*
           if-no-files-found: error
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        with:
+          name: image-oci
+          path: |
+            out/image-a.tar
+            out/digest-a
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: reproducible
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/aseryx/aseryx-enclave
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: image-oci
+          path: out
+
+      - name: Copy the verified image to the registry
+        env:
+          GITHUB_ACTOR_NAME: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "$REGISTRY_TOKEN" | skopeo login ghcr.io --username "$GITHUB_ACTOR_NAME" --password-stdin
+          skopeo copy --preserve-digests "oci-archive:out/image-a.tar" "docker://$IMAGE:sha-${GITHUB_SHA::12}"
+
+      - name: The registry holds the digest the builds produced
+        run: |
+          digest=$(cat out/digest-a)
+          held=$(skopeo inspect --raw "docker://$IMAGE:sha-${GITHUB_SHA::12}" | sha256sum | cut -d' ' -f1)
+          test "sha256:$held" = "$digest"
+          echo "published $IMAGE@$digest" >> "$GITHUB_STEP_SUMMARY"
