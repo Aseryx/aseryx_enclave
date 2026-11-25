@@ -48,33 +48,38 @@ pub trait Fetcher: Sync {
     fn fetch(&self, cid: &str, max_bytes: u64) -> Result<Vec<u8>, StoreError>;
 }
 
-/// An IPFS HTTP gateway.
+/// IPFS HTTP gateways, tried in order.
+///
+/// A chunk is authenticated by AES-GCM and the plaintext by its registered hash, so a gateway that answers wrongly cannot
+/// pass anything off: the first gateway that answers is taken, and an unreachable, failing or over-long answer falls
+/// through to the next.
 pub struct IpfsGateway {
-    base_url: String,
+    base_urls: Vec<String>,
     agent: ureq::Agent,
 }
 
 impl IpfsGateway {
-    /// A client of the gateway at `base_url`, which serves `GET <base_url>/ipfs/<cid>`.
+    /// A client of the gateways at `base_urls`, each of which serves `GET <base_url>/ipfs/<cid>`.
     #[must_use]
-    pub fn new(base_url: &str) -> Self {
+    pub fn new(base_urls: &[&str]) -> Self {
         let agent = ureq::Agent::config_builder()
             .timeout_global(Some(GATEWAY_TIMEOUT))
             .http_status_as_error(false)
             .build()
             .into();
         Self {
-            base_url: base_url.trim_end_matches('/').to_owned(),
+            base_urls: base_urls
+                .iter()
+                .map(|url| url.trim_end_matches('/').to_owned())
+                .collect(),
             agent,
         }
     }
-}
 
-impl Fetcher for IpfsGateway {
-    fn fetch(&self, cid: &str, max_bytes: u64) -> Result<Vec<u8>, StoreError> {
+    fn fetch_from(&self, base_url: &str, cid: &str, max_bytes: u64) -> Result<Vec<u8>, StoreError> {
         let mut response = self
             .agent
-            .get(format!("{}/ipfs/{cid}", self.base_url))
+            .get(format!("{base_url}/ipfs/{cid}"))
             .call()
             .map_err(|_| StoreError::Fetch)?;
         if response.status().as_u16() != 200 {
@@ -86,6 +91,15 @@ impl Fetcher for IpfsGateway {
             .limit(max_bytes)
             .read_to_vec()
             .map_err(|_| StoreError::Fetch)
+    }
+}
+
+impl Fetcher for IpfsGateway {
+    fn fetch(&self, cid: &str, max_bytes: u64) -> Result<Vec<u8>, StoreError> {
+        self.base_urls
+            .iter()
+            .find_map(|base_url| self.fetch_from(base_url, cid, max_bytes).ok())
+            .ok_or(StoreError::Fetch)
     }
 }
 

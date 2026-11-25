@@ -68,7 +68,8 @@ fn main() -> ExitCode {
     let releaser = ApiRelay::new(&config.api_url);
     let urls: Vec<&str> = config.rpc_urls.iter().map(String::as_str).collect();
     let chain = RpcChain::new(config.registry, &urls);
-    let fetcher = IpfsGateway::new(&config.ipfs_gateway);
+    let gateways: Vec<&str> = config.ipfs_gateways.iter().map(String::as_str).collect();
+    let fetcher = IpfsGateway::new(&gateways);
     let evidence = HttpFetcher::new();
     let artifacts = BucketSource::new(&config.artifacts_url);
     let prover = ArkProver::new(pins, &artifacts);
