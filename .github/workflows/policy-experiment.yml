@@ -3,7 +3,9 @@ name: policy experiment
 # Temporary: what confcom accepts for a pattern rule on one environment variable.
 
 on:
-  workflow_dispatch:
+  push:
+    branches: ["spike/**"]
+    paths: [".github/workflows/policy-experiment.yml"]
 
 permissions:
   contents: read
