@@ -1,0 +1,10 @@
+{
+  "repository": "https://github.com/Aseryx/aseryx_appraisal_core",
+  "commit": "8f75bb6f33094bb7bb0d622e3a2664da5218f807",
+  "version": "0.15.1",
+  "build": "make wasm (wasm-bindgen --target web, wasm-opt -Oz)",
+  "note": "The module browsers run for appraisal. The harness refuses any module whose SHA-256 is not the pinned one.",
+  "files": {
+    "appraisal_core_wasm_bg.wasm": "c4565b13e634c8c900a7d241ed141974e93eb6fb895e0b016a63cce36d35968c"
+  }
+}
