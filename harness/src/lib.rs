@@ -10,6 +10,7 @@ pub mod chain;
 pub mod check;
 pub mod circom;
 pub mod claim;
+pub mod config;
 pub mod consent;
 pub mod engine;
 pub mod error_code;

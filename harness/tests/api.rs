@@ -2,9 +2,10 @@
 
 mod common;
 
-use aseryx_enclave_harness::api::ApiJobSource;
+use aseryx_enclave_harness::api::{ApiClient, ApiJobSource};
 use aseryx_enclave_harness::claim::{ClaimError, JobSource};
 use aseryx_enclave_harness::consent::Bytes32;
+use aseryx_enclave_harness::job::{ApiError, JobApi, JobKind};
 use aseryx_enclave_harness::runtime_data::RuntimeData;
 use base64::Engine;
 use common::serve_once;
@@ -105,4 +106,77 @@ fn an_unreachable_api_is_a_transport_failure() {
         ApiJobSource::new(&url).claim("a.b.c", &data(), 2),
         Err(ClaimError::Transport)
     );
+}
+
+const INPUTS: &str = r#"{"jobId":"0x01","kind":"appraisal","consent":{"a":1},"consentSignature":"0xab","tokenId":"4",
+    "dataset":"0123456789abcdef0123456789abcdef","manifestCid":"QmManifest","family":"tabular"}"#;
+
+fn request_body(request: &str) -> Value {
+    serde_json::from_str(request.split("\r\n\r\n").nth(1).expect("body")).expect("json")
+}
+
+/// The job request names the action, the token and the exact runtime data, and the answer is the job's inputs.
+#[test]
+fn the_job_request_carries_the_token_and_the_runtime_data() {
+    let (url, seen) = serve_once("200 OK", INPUTS);
+    let inputs = ApiClient::new(&url)
+        .job("a.b.c", "cnVudGltZQ==")
+        .expect("inputs");
+    assert_eq!(inputs.kind, JobKind::Appraisal);
+    assert_eq!(inputs.manifest_cid, "QmManifest");
+    assert_eq!(inputs.dataset, "0123456789abcdef0123456789abcdef");
+    let request = seen.join().expect("server");
+    assert!(request.starts_with("POST / HTTP/1.1\r\n"), "{request}");
+    let body = request_body(&request);
+    assert_eq!(
+        body,
+        serde_json::json!({"action": "job", "token": "a.b.c", "runtimeData": "cnVudGltZQ=="})
+    );
+}
+
+/// Any answer but 200 with a job body is no job.
+#[test]
+fn an_answer_that_is_not_a_job_is_an_error() {
+    for (status, body) in [
+        ("403 Forbidden", r#"{"error":"claim_refused"}"#),
+        ("404 Not Found", r#"{"error":"x"}"#),
+        ("500 Internal Server Error", ""),
+        ("200 OK", ""),
+        ("200 OK", "{}"),
+        ("200 OK", r#"{"kind":"nonsense"}"#),
+    ] {
+        let (url, _server) = serve_once(status, body);
+        assert_eq!(
+            ApiClient::new(&url).job("a.b.c", "x"),
+            Err(ApiError),
+            "{status} {body}"
+        );
+    }
+}
+
+/// A result is posted exactly as given, and only a 200 accepts it.
+#[test]
+fn a_result_is_posted_as_given_and_only_200_accepts_it() {
+    let body =
+        serde_json::json!({"action": "result", "token": "a.b.c", "kind": "appraisal", "n": [1, 2]});
+    let (url, seen) = serve_once("200 OK", r#"{"ok":true}"#);
+    assert_eq!(ApiClient::new(&url).post_result(&body), Ok(()));
+    assert_eq!(request_body(&seen.join().expect("server")), body);
+    for status in [
+        "400 Bad Request",
+        "403 Forbidden",
+        "500 Internal Server Error",
+    ] {
+        let (url, _server) = serve_once(status, r#"{"error":"x"}"#);
+        assert_eq!(
+            ApiClient::new(&url).post_result(&body),
+            Err(ApiError),
+            "{status}"
+        );
+    }
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let gone = format!("http://{}", listener.local_addr().expect("addr"));
+    drop(listener);
+    assert_eq!(ApiClient::new(&gone).post_result(&body), Err(ApiError));
+    assert_eq!(ApiClient::new(&gone).job("a.b.c", "x"), Err(ApiError));
 }
