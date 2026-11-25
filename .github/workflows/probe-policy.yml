@@ -1,0 +1,70 @@
+name: probe-policy
+
+# Generates the confidential container policy of the 0.7 cgroup probe from spike/0.7/probe-template.json: one container,
+# the Microsoft SKR image running exactly the template's command, stdio allowed (the probe's output is read from its
+# logs). The probe holds no key and runs no job; it only reads /sys/fs/cgroup and /proc/meminfo. The policy does not
+# depend on the container's memory, so one policy serves every size. This is a debug policy and is never used for the
+# workload. Nothing is pushed or deployed.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Install the pinned confcom extension
+        run: az extension add --name confcom --version 2.4.1 --yes
+
+      - name: Generate the probe policy
+        run: |
+          mkdir -p out
+          jq '{containers: .resources[0].properties.containers}' spike/0.7/probe-template.json > out/config.json
+          az confcom acipolicygen --input out/config.json --print-policy > out/policy.b64
+          base64 -d out/policy.b64 > out/policy.rego
+          tr -d '\n' < out/policy.b64 > out/policy.deploy.b64
+          sha256sum out/policy.rego | cut -d' ' -f1 > out/policy.sha256
+
+      - name: The policy admits the probe's command with stdio, and nothing else runs
+        run: |
+          python3 - <<'PY'
+          import json, re
+          rego = open('out/policy.rego').read()
+          template = json.load(open('spike/0.7/probe-template.json'))
+          command = template['resources'][0]['properties']['containers'][0]['properties']['command']
+          containers = json.loads(re.search(r'^containers := (\[.*\])$', rego, re.M).group(1))
+          probe = [c for c in containers if c['name'] == 'cgroup-probe']
+          assert len(probe) == 1, 'one probe container'
+          assert probe[0]['command'] == command, 'the policy pins the probe command exactly'
+          assert probe[0]['id'] == 'mcr.microsoft.com/aci/skr:2.12'
+          assert probe[0]['allow_stdio_access'] is True, 'stdio allowed'
+          assert probe[0]['exec_processes'] == [], 'no exec process'
+          print(json.dumps({k: probe[0][k] for k in ('name', 'id', 'command', 'allow_stdio_access', 'exec_processes')}, indent=1))
+          PY
+          {
+            echo '### Probe policy'
+            echo "hash $(cat out/policy.sha256)"
+            echo
+            echo 'Container rule:'
+            echo '```json'
+            python3 - <<'PY'
+          import json, re
+          rego = open('out/policy.rego').read()
+          containers = json.loads(re.search(r'^containers := (\[.*\])$', rego, re.M).group(1))
+          probe = [c for c in containers if c['name'] == 'cgroup-probe'][0]
+          print(json.dumps({k: probe[k] for k in ('name', 'id', 'command', 'allow_stdio_access', 'exec_processes', 'env_rules')}, indent=1))
+          PY
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: probe-policy
+          path: out/
+          if-no-files-found: error
