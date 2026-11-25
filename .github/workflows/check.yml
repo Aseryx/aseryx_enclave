@@ -1,0 +1,59 @@
+name: check
+
+# The harness gate on every push and pull request: formatting, clippy with warnings as errors, every test, the docs with
+# warnings as errors, and the policy anchoring tests (make fmt-check clippy test doc policy-tests). Two parts of make check
+# are not here: the secret scan, which is its own workflow (secrets.yml), and nothing else is skipped.
+#   - The tests need the engine module (engine/, in this repository), the appraisal-core goldens
+#     (harness/tests/tabular, vendored with their hashes) and the circuit artifacts. The artifacts are downloaded
+#     by `make circuits` from the public artifact bucket on every run (about 9 MB) and refused unless each file's SHA-256
+#     equals its pin in harness/circuit-pins.json.
+#   - Nothing needs confcom or Docker: the policy tests exercise the anchoring and the checker on text.
+# The toolchain is the one the image builds with (Dockerfile), so a lint that differs between releases cannot differ here.
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  RUST_TOOLCHAIN: 1.97.1
+  CARGO_TERM_COLOR: never
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Install the pinned toolchain
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component clippy --component rustfmt
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-${{ env.RUST_TOOLCHAIN }}-
+
+      - name: Formatting
+        run: make fmt-check
+
+      - name: Clippy
+        run: make clippy
+
+      - name: Tests
+        run: make test
+
+      - name: Docs
+        run: make doc
+
+      - name: Policy tests
+        run: make policy-tests
