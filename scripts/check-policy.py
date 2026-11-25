@@ -4,33 +4,31 @@
 usage: check-policy.py POLICY.rego TEMPLATE.json ENGINE.sha256
        check-policy.py --self-test
 
-The workload container must be locked down (no exec, no stdio) and every ENCLAVE_* environment rule must be an exact
-string equal to the template's value. ENCLAVE_MEMORY_GB is the one exception: its rule may be any pattern, because the
-workload refuses to start unless the container's cgroup shows 85% of the size it claims; its pattern must be exactly
-MEMORY_PATTERN and must accept the whole numbers 1 to 32 and nothing else. Besides that, the only regular
-expressions allowed are the platform's own fixed rules, which confcom adds to every container. The engine pin in the
-environment must be the hash of the engine module in the image.
+The policy engine allows an environment variable when any rule of its container matches the text NAME=VALUE, and a
+regular-expression rule is a search, not a full match. So this checker does not read the rules, it asks the question the
+engine asks: for the texts a deployer could try, is the text allowed? It fails unless
+
+- every regular-expression environment rule of every container is anchored at both ends (anchor-policy.py does that);
+- each ENCLAVE_* variable of the template is allowed with exactly its value and with nothing else: not another value, not
+  its value followed by text that would satisfy another rule (the platform's, or the memory rule's);
+- ENCLAVE_MEMORY_GB is allowed with the whole numbers 1 to 32 and no other text, and no other variable is allowed by its
+  rule (X=ENCLAVE_MEMORY_GB=4, ENCLAVE_API_URL=<value>?ENCLAVE_MEMORY_GB=4, LD_PRELOAD=/a:ENCLAVE_MEMORY_GB=4);
+- the workload allows no exec and no stdio, and the engine pin in its environment is the hash of the engine module.
 """
 import json
 import re
 import sys
 
 WORKLOAD = "enclave-workload"
-EXCEPTION = "ENCLAVE_MEMORY_GB"
-# The rule for the memory setting: a whole number from 1 to 32, anchored at the end (the policy engine's match is not
-# anchored at the start, so the rule is the name, '=', and the number).
-MEMORY_PATTERN = "ENCLAVE_MEMORY_GB=([1-9]|[12][0-9]|3[0-2])$"
-PLATFORM_RE2 = {
-    "(?i)(FABRIC)_.+=.+",
-    "HOSTNAME=.+",
-    "T(E)?MP=.+",
-    "FabricPackageFileName=.+",
-    "HostedServiceName=.+",
-    "IDENTITY_API_VERSION=.+",
-    "IDENTITY_HEADER=.+",
-    "IDENTITY_SERVER_THUMBPRINT=.+",
-    "azurecontainerinstance_restarted_by=.+",
-}
+MEMORY = "ENCLAVE_MEMORY_GB"
+MEMORY_PATTERN = "^ENCLAVE_MEMORY_GB=([1-9]|[12][0-9]|3[0-2])$"
+# The environment variables the platform sets, as confcom writes them: the text each rule is built from
+PLATFORM_VARIABLES = [
+    "HOSTNAME", "TMP", "TEMP", "FABRIC_X", "FabricPackageFileName", "HostedServiceName", "IDENTITY_API_VERSION",
+    "IDENTITY_HEADER", "IDENTITY_SERVER_THUMBPRINT", "azurecontainerinstance_restarted_by",
+]
+# What a deployer could append to a value to satisfy a rule that is not the variable's own
+SUFFIXES = [f"?{name}=1" for name in PLATFORM_VARIABLES] + [f"?{MEMORY}=4", f":{MEMORY}=4", f"\n{MEMORY}=4"]
 
 
 def containers(rego: str) -> list:
@@ -40,20 +38,104 @@ def containers(rego: str) -> list:
     raise SystemExit("the policy has no containers line")
 
 
+def matches(rule: dict, text: str) -> bool:
+    """One environment rule against one text, as the engine does it: exact for a string, a search for a pattern ($ is
+    the end of the text, as in RE2)."""
+    if rule["strategy"] == "string":
+        return rule["pattern"] == text
+    pattern = rule["pattern"]
+    if pattern.endswith("$"):
+        pattern = pattern[:-1] + r"\Z"
+    return re.search(pattern, text, re.DOTALL) is not None
+
+
+def allowed(rules: list, text: str) -> bool:
+    return any(matches(rule, text) for rule in rules)
+
+
+def anchored(pattern: str) -> bool:
+    body = pattern[len("(?i)"):] if pattern.startswith("(?i)") else pattern
+    return body.startswith("^") and body.endswith("$")
+
+
+def check_rules(rules: list, expected: dict) -> list:
+    """The problems an environment rule list has, given the template's ENCLAVE_* variables."""
+    problems = []
+    for rule in rules:
+        if rule["strategy"] not in ("string", "re2"):
+            problems.append(f"an environment rule with strategy {rule['strategy']}")
+        if rule["strategy"] == "re2" and not anchored(rule["pattern"]):
+            problems.append(f"a regular expression rule that is not anchored at both ends: {rule['pattern']}")
+    for name, value in expected.items():
+        if name == MEMORY:
+            continue
+        if not allowed(rules, f"{name}={value}"):
+            problems.append(f"{name} is not allowed with the template's value")
+        for text in [f"{name}=evil", f"{name}=", f"X{name}={value}"] + [f"{name}={value}{s}" for s in SUFFIXES]:
+            if allowed(rules, text):
+                problems.append(f"{name} is allowed with another text: {text!r}")
+    for number in range(1, 33):
+        if not allowed(rules, f"{MEMORY}={number}"):
+            problems.append(f"{MEMORY}={number} is not allowed")
+    attacks = ["0", "33", "45", "4x", "04", "100", "", " 4", "4 ", "4\n", "-1", "1,2"]
+    for text in [f"{MEMORY}={v}" for v in attacks] + [
+        f"X={MEMORY}=4",
+        f"LD_PRELOAD=/a:{MEMORY}=4",
+        f"{MEMORY}=4\nLD_PRELOAD=/a",
+    ] + [f"{name}={value}?{MEMORY}=4" for name, value in expected.items() if name != MEMORY]:
+        if allowed(rules, text):
+            problems.append(f"an environment text that is allowed and must not be: {text!r}")
+    for name in PLATFORM_VARIABLES:
+        for text in [f"LD_PRELOAD=/a:{name}=1", f"ENCLAVE_NEW=1?{name}=1"]:
+            if allowed(rules, text):
+                problems.append(f"an environment text that is allowed and must not be: {text!r}")
+    return problems
+
+
 def self_test() -> int:
-    """The memory pattern takes the whole numbers 1 to 32 and nothing else ($ is end of text in RE2; \\Z here)."""
-    pattern = re.compile(MEMORY_PATTERN.replace("$", r"\Z"))
-    accepted = [str(n) for n in range(1, 33)]
-    refused = ["0", "33", "45", "4x", "", "-1", "04", "100", "1 ", "2\n", "3,4"]
-    wrong = [v for v in accepted if not pattern.search(f"ENCLAVE_MEMORY_GB={v}")]
-    wrong += [v for v in refused if pattern.search(f"ENCLAVE_MEMORY_GB={v}")]
-    print("memory pattern self-test:", "ok" if not wrong else f"wrong for {wrong}")
-    return 1 if wrong else 0
+    platform = [
+        {"pattern": "HOSTNAME=.+", "strategy": "re2"},
+        {"pattern": "T(E)?MP=.+", "strategy": "re2"},
+        {"pattern": "(?i)(FABRIC)_.+=.+", "strategy": "re2"},
+        {"pattern": "FabricPackageFileName=.+", "strategy": "re2"},
+        {"pattern": "HostedServiceName=.+", "strategy": "re2"},
+        {"pattern": "IDENTITY_API_VERSION=.+", "strategy": "re2"},
+        {"pattern": "IDENTITY_HEADER=.+", "strategy": "re2"},
+        {"pattern": "IDENTITY_SERVER_THUMBPRINT=.+", "strategy": "re2"},
+        {"pattern": "azurecontainerinstance_restarted_by=.+", "strategy": "re2"},
+    ]
+    exact = [{"pattern": "ENCLAVE_API_URL=https://a.example/f", "strategy": "string"}]
+    memory = [{"pattern": "ENCLAVE_MEMORY_GB=([1-9]|[12][0-9]|3[0-2])", "strategy": "re2"}]
+    expected = {"ENCLAVE_API_URL": "https://a.example/f", MEMORY: "4"}
+
+    def anchor(rules):
+        out = []
+        for r in rules:
+            body = r["pattern"]
+            flags = "(?i)" if body.startswith("(?i)") else ""
+            body = body[len(flags):]
+            out.append({**r, "pattern": flags + "^" + body + "$"} if r["strategy"] == "re2" else r)
+        return out
+
+    failures = []
+    unanchored = check_rules(platform + exact + memory, expected)
+    if not any("not anchored" in p for p in unanchored) or not any("allowed with another text" in p for p in unanchored):
+        failures.append("the checker does not see the hole in unanchored rules")
+    good = check_rules(anchor(platform + memory) + exact, expected)
+    if good:
+        failures.append(f"the checker refuses anchored rules: {good[:3]}")
+    legit = ["HOSTNAME=abc", "TMP=/tmp", "TEMP=/tmp", "FABRIC_NODE=1", "fabric_node=1", "IDENTITY_HEADER=x"]
+    wrong = [t for t in legit if not allowed(anchor(platform), t)]
+    if wrong:
+        failures.append(f"anchored platform rules refuse legitimate values: {wrong}")
+    print("policy checker self-test:", "ok" if not failures else failures)
+    return 1 if failures else 0
 
 
 def main(policy_path: str, template_path: str, engine_path: str) -> int:
     problems = []
-    workload = next((c for c in containers(open(policy_path).read()) if c["name"] == WORKLOAD), None)
+    all_containers = containers(open(policy_path).read())
+    workload = next((c for c in all_containers if c["name"] == WORKLOAD), None)
     if workload is None:
         raise SystemExit(f"the policy has no container named {WORKLOAD}")
     template = json.load(open(template_path))
@@ -64,36 +146,19 @@ def main(policy_path: str, template_path: str, engine_path: str) -> int:
     )
     expected = {e["name"]: e["value"] for e in declared}
 
+    for container in all_containers:
+        for rule in container["env_rules"]:
+            if rule["strategy"] == "re2" and not anchored(rule["pattern"]):
+                problems.append(f"{container['name']}: a regular expression rule that is not anchored: {rule['pattern']}")
     if workload["exec_processes"]:
         problems.append("the workload allows exec")
     if workload["allow_stdio_access"]:
         problems.append("the workload allows stdio")
-
-    rules = workload["env_rules"]
-    for rule in rules:
-        name = rule["pattern"].split("=", 1)[0]
-        if rule["strategy"] == "re2":
-            if rule["pattern"] == MEMORY_PATTERN:
-                continue
-            if rule["pattern"] not in PLATFORM_RE2:
-                problems.append(f"a regular expression rule that is not the platform's: {rule['pattern']}")
-        elif rule["strategy"] == "string":
-            if name.startswith("ENCLAVE_") and name not in expected:
-                problems.append(f"an ENCLAVE_ rule the template does not declare: {name}")
-        else:
-            problems.append(f"an environment rule with strategy {rule['strategy']}")
-    for name, value in expected.items():
-        exact = [r for r in rules if r["strategy"] == "string" and r["pattern"] == f"{name}={value}"]
-        if name == EXCEPTION:
-            if [r for r in rules if r["strategy"] == "re2" and r["pattern"] == MEMORY_PATTERN] == []:
-                problems.append(f"{name} is not the pattern rule")
-            if any(r["strategy"] == "string" and r["pattern"].startswith(f"{name}=") for r in rules):
-                problems.append(f"{name} also has an exact rule")
-            continue
-        if len(exact) != 1:
-            problems.append(f"{name} is not pinned to exactly the template's value")
-        if len([r for r in rules if r["pattern"].split("=", 1)[0] == name]) != 1:
-            problems.append(f"{name} has more than one rule")
+    problems += check_rules(workload["env_rules"], expected)
+    if not any(r["pattern"] == MEMORY_PATTERN and r["strategy"] == "re2" for r in workload["env_rules"]):
+        problems.append(f"the memory rule is not exactly {MEMORY_PATTERN}")
+    if [n for n in expected if n.startswith("ENCLAVE_")] != [n for n in expected]:
+        problems.append("the template has an environment variable that is not ENCLAVE_*")
 
     pin = open(engine_path).read().split()[0]
     if expected.get("ENCLAVE_ENGINE_SHA256") != "0x" + pin:
@@ -101,7 +166,7 @@ def main(policy_path: str, template_path: str, engine_path: str) -> int:
     if not re.fullmatch(r"0x[0-9a-f]{64}", expected.get("ENCLAVE_ENGINE_SHA256", "")):
         problems.append("ENCLAVE_ENGINE_SHA256 is not 0x and 64 lower-case hex digits")
 
-    for problem in problems:
+    for problem in dict.fromkeys(problems):
         print("policy problem:", problem)
     if not problems:
         print("policy ok:", ", ".join(sorted(expected)))
