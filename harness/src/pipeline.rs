@@ -85,7 +85,7 @@ fn feed_pass(
     let mut hasher = Sha256::new();
     let mut total = 0u64;
     for chunk in &manifest.chunks {
-        let sealed = cache.read(&chunk.cid)?;
+        let (sealed, _waited) = cache.read_waiting(&chunk.cid)?;
         total += stream_chunk(key, chunk, &sealed, &mut |slice| {
             hasher.update(slice);
             runs.iter_mut()

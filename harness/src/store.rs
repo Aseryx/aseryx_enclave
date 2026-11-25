@@ -4,11 +4,13 @@
 //! public; the plaintext exists only in memory.
 
 use crate::manifest::Chunk;
+use std::collections::HashSet;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Duration;
+use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
+use std::time::{Duration, Instant};
 
 const GATEWAY_TIMEOUT: Duration = Duration::from_secs(300);
 const MIN_CIPHERTEXT_BYTES: usize = 16;
@@ -208,10 +210,76 @@ fn free_bytes(dir: &Path) -> io::Result<u64> {
 /// Reads how many bytes are free on the disk holding a directory.
 type FreeSpace = Box<dyn Fn(&Path) -> io::Result<u64> + Send + Sync>;
 
+/// Why fetching stopped, kept so every reader that waits can be told.
+#[derive(Debug, Clone, Copy)]
+enum Failure {
+    Fetch,
+    TooShort,
+    Cache,
+}
+
+impl From<&StoreError> for Failure {
+    fn from(error: &StoreError) -> Self {
+        match error {
+            StoreError::TooShort => Self::TooShort,
+            StoreError::Cache(_) | StoreError::NoRoom => Self::Cache,
+            StoreError::Fetch => Self::Fetch,
+        }
+    }
+}
+
+impl From<Failure> for StoreError {
+    fn from(failure: Failure) -> Self {
+        match failure {
+            Failure::Fetch => Self::Fetch,
+            Failure::TooShort => Self::TooShort,
+            Failure::Cache => Self::Cache(io::Error::other("the chunk cache failed")),
+        }
+    }
+}
+
+/// What fetching the chunks cost: nothing derived from their content.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FetchStats {
+    /// Chunks that are on disk, fetched or already cached.
+    pub chunks: u64,
+    /// Bytes downloaded.
+    pub bytes: u64,
+    /// Bytes of ciphertext on disk, downloaded or already there.
+    pub disk_bytes: u64,
+    /// The time the fetch threads spent fetching, added up over the threads.
+    pub busy: Duration,
+    /// The time from the first fetch to the last chunk landing.
+    pub wall: Duration,
+}
+
+/// What one chunk's fetch left on disk.
+struct Fetched {
+    downloaded: u64,
+    on_disk: u64,
+}
+
+#[derive(Default)]
+struct Progress {
+    landed: HashSet<String>,
+    failure: Option<Failure>,
+    workers: usize,
+    cancelled: bool,
+    started: Option<Instant>,
+    ended: Option<Instant>,
+    stats: FetchStats,
+}
+
 /// A directory of ciphertext chunks, one file per content identifier.
+///
+/// Chunks are fetched by threads that run while the job does other work, and a reader asks for a chunk by name and waits
+/// until it has landed ([`CipherCache::read_waiting`]), so the passes parse the first chunks while the later ones download.
 pub struct CipherCache {
     dir: PathBuf,
     free_bytes: FreeSpace,
+    next: AtomicUsize,
+    progress: Mutex<Progress>,
+    arrived: Condvar,
 }
 
 impl CipherCache {
@@ -237,6 +305,9 @@ impl CipherCache {
         Ok(Self {
             dir: dir.to_owned(),
             free_bytes: Box::new(free_bytes),
+            next: AtomicUsize::new(0),
+            progress: Mutex::new(Progress::default()),
+            arrived: Condvar::new(),
         })
     }
 
@@ -260,13 +331,91 @@ impl CipherCache {
         self.dir.join(cid)
     }
 
-    /// Fetches every chunk that is not cached yet, with at most `parallel` fetches in flight, and writes each to disk
-    /// under a temporary name before it takes its final one. A chunk longer than `max_bytes` is refused: see
-    /// [`chunk_limit`].
+    fn lock(&self) -> MutexGuard<'_, Progress> {
+        self.progress.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Starts `parallel` threads in `scope` that fetch every chunk that is not cached yet, in order, and returns at once.
+    /// Each chunk is written to disk under a temporary name before it takes its final one; a chunk longer than `max_bytes`
+    /// is refused (see [`chunk_limit`]). The first failure stops the threads and every reader that waits gets it. The
+    /// scope ends when the threads have, so a caller that no longer needs the chunks calls [`CipherCache::cancel`] first.
+    pub fn start_fetching<'scope, 'env: 'scope>(
+        &'env self,
+        scope: &'scope std::thread::Scope<'scope, 'env>,
+        chunks: &'env [Chunk],
+        fetcher: &'env dyn Fetcher,
+        parallel: usize,
+        max_bytes: u64,
+    ) {
+        let workers = parallel.clamp(1, chunks.len().max(1));
+        self.next.store(0, Ordering::Relaxed);
+        *self.lock() = Progress {
+            workers,
+            started: Some(Instant::now()),
+            ..Progress::default()
+        };
+        for _ in 0..workers {
+            scope.spawn(move || self.work(chunks, fetcher, max_bytes));
+        }
+    }
+
+    fn work(&self, chunks: &[Chunk], fetcher: &dyn Fetcher, max_bytes: u64) {
+        loop {
+            {
+                let progress = self.lock();
+                if progress.cancelled || progress.failure.is_some() {
+                    break;
+                }
+            }
+            let Some(chunk) = chunks.get(self.next.fetch_add(1, Ordering::Relaxed)) else {
+                break;
+            };
+            let began = Instant::now();
+            let outcome = self.fetch_one(chunk, fetcher, max_bytes);
+            let mut progress = self.lock();
+            progress.stats.busy += began.elapsed();
+            match outcome {
+                Ok(fetched) => {
+                    progress.landed.insert(chunk.cid.clone());
+                    progress.stats.chunks += 1;
+                    progress.stats.bytes += fetched.downloaded;
+                    progress.stats.disk_bytes += fetched.on_disk;
+                    progress.ended = Some(Instant::now());
+                }
+                Err(error) => {
+                    progress.failure.get_or_insert(Failure::from(&error));
+                }
+            }
+            self.arrived.notify_all();
+        }
+        let mut progress = self.lock();
+        progress.workers = progress.workers.saturating_sub(1);
+        self.arrived.notify_all();
+    }
+
+    /// Stops the fetch threads after the chunks they are fetching now, and wakes every reader that waits.
+    pub fn cancel(&self) {
+        self.lock().cancelled = true;
+        self.arrived.notify_all();
+    }
+
+    /// What fetching has cost so far.
+    #[must_use]
+    pub fn fetch_stats(&self) -> FetchStats {
+        let progress = self.lock();
+        let mut stats = progress.stats;
+        if let (Some(started), Some(ended)) = (progress.started, progress.ended) {
+            stats.wall = ended.saturating_duration_since(started);
+        }
+        stats
+    }
+
+    /// Fetches every chunk that is not cached yet, with at most `parallel` fetches in flight, and returns when they have
+    /// landed (see [`CipherCache::start_fetching`]).
     ///
     /// # Errors
     ///
-    /// The first [`StoreError`] any fetch or write raised. Chunks fetched before it stay cached.
+    /// The first failure any fetch or write raised. Chunks fetched before it stay cached.
     pub fn fill(
         &self,
         chunks: &[Chunk],
@@ -274,28 +423,11 @@ impl CipherCache {
         parallel: usize,
         max_bytes: u64,
     ) -> Result<(), StoreError> {
-        let next = AtomicUsize::new(0);
-        let failure = std::sync::Mutex::new(None::<StoreError>);
         std::thread::scope(|scope| {
-            for _ in 0..parallel.clamp(1, chunks.len().max(1)) {
-                scope.spawn(|| {
-                    while failure.lock().map_or(true, |f| f.is_none()) {
-                        let index = next.fetch_add(1, Ordering::Relaxed);
-                        let Some(chunk) = chunks.get(index) else {
-                            return;
-                        };
-                        if let Err(error) = self.fetch_one(chunk, fetcher, max_bytes) {
-                            if let Ok(mut slot) = failure.lock() {
-                                slot.get_or_insert(error);
-                            }
-                            return;
-                        }
-                    }
-                });
-            }
+            self.start_fetching(scope, chunks, fetcher, parallel, max_bytes)
         });
-        match failure.into_inner().ok().flatten() {
-            Some(error) => Err(error),
+        match self.lock().failure {
+            Some(failure) => Err(failure.into()),
             None => Ok(()),
         }
     }
@@ -305,10 +437,17 @@ impl CipherCache {
         chunk: &Chunk,
         fetcher: &dyn Fetcher,
         max_bytes: u64,
-    ) -> Result<(), StoreError> {
+    ) -> Result<Fetched, StoreError> {
         let path = self.path(&chunk.cid);
-        if fs::metadata(&path).is_ok_and(|m| m.len() >= MIN_CIPHERTEXT_BYTES as u64) {
-            return Ok(());
+        if let Some(length) = fs::metadata(&path)
+            .ok()
+            .map(|m| m.len())
+            .filter(|length| *length >= MIN_CIPHERTEXT_BYTES as u64)
+        {
+            return Ok(Fetched {
+                downloaded: 0,
+                on_disk: length,
+            });
         }
         let bytes = fetcher.fetch(&chunk.cid, max_bytes)?;
         if bytes.len() < MIN_CIPHERTEXT_BYTES {
@@ -319,7 +458,41 @@ impl CipherCache {
         file.write_all(&bytes)?;
         file.sync_all()?;
         fs::rename(&temporary, &path)?;
-        Ok(())
+        let length = bytes.len() as u64;
+        Ok(Fetched {
+            downloaded: length,
+            on_disk: length,
+        })
+    }
+
+    /// The ciphertext of a chunk, once it has landed, and how long the call waited for it. Without fetch threads running
+    /// it reads what is on disk.
+    ///
+    /// # Errors
+    ///
+    /// The failure that stopped the fetch threads, or [`StoreError::Cache`] when the chunk is not on disk and nothing is
+    /// fetching it, or [`StoreError::TooShort`] if it is shorter than a tag.
+    pub fn read_waiting(&self, cid: &str) -> Result<(Vec<u8>, Duration), StoreError> {
+        let began = Instant::now();
+        let mut progress = self.lock();
+        loop {
+            if progress.landed.contains(cid) {
+                break;
+            }
+            if let Some(failure) = progress.failure {
+                return Err(failure.into());
+            }
+            if progress.workers == 0 || progress.cancelled {
+                break;
+            }
+            progress = self
+                .arrived
+                .wait(progress)
+                .unwrap_or_else(PoisonError::into_inner);
+        }
+        drop(progress);
+        let waited = began.elapsed();
+        self.read(cid).map(|bytes| (bytes, waited))
     }
 
     /// The ciphertext of a cached chunk.
