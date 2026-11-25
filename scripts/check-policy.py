@@ -43,10 +43,12 @@ def matches(rule: dict, text: str) -> bool:
     the end of the text, as in RE2)."""
     if rule["strategy"] == "string":
         return rule["pattern"] == text
-    pattern = rule["pattern"]
+    pattern, flags = rule["pattern"], re.DOTALL
+    if pattern.startswith("^(?i)"):
+        pattern, flags = "^" + pattern[len("^(?i)"):], flags | re.IGNORECASE
     if pattern.endswith("$"):
         pattern = pattern[:-1] + r"\Z"
-    return re.search(pattern, text, re.DOTALL) is not None
+    return re.search(pattern, text, flags) is not None
 
 
 def allowed(rules: list, text: str) -> bool:
@@ -54,8 +56,8 @@ def allowed(rules: list, text: str) -> bool:
 
 
 def anchored(pattern: str) -> bool:
-    body = pattern[len("(?i)"):] if pattern.startswith("(?i)") else pattern
-    return body.startswith("^") and body.endswith("$")
+    """Anchored at both ends: ^ first (an inline flag may follow it) and $ last."""
+    return pattern.startswith("^") and pattern.endswith("$") and not pattern.startswith("(?i)")
 
 
 def check_rules(rules: list, expected: dict) -> list:
@@ -114,7 +116,7 @@ def self_test() -> int:
             body = r["pattern"]
             flags = "(?i)" if body.startswith("(?i)") else ""
             body = body[len(flags):]
-            out.append({**r, "pattern": flags + "^" + body + "$"} if r["strategy"] == "re2" else r)
+            out.append({**r, "pattern": "^" + flags + body + "$"} if r["strategy"] == "re2" else r)
         return out
 
     failures = []
@@ -124,7 +126,7 @@ def self_test() -> int:
     good = check_rules(anchor(platform + memory) + exact, expected)
     if good:
         failures.append(f"the checker refuses anchored rules: {good[:3]}")
-    legit = ["HOSTNAME=abc", "TMP=/tmp", "TEMP=/tmp", "FABRIC_NODE=1", "fabric_node=1", "IDENTITY_HEADER=x"]
+    legit = ["HOSTNAME=abc", "TMP=/tmp", "TEMP=/tmp", "FABRIC_NODE=1", "fabric_node=1", "Fabric_Node=a=b", "IDENTITY_HEADER=x"]
     wrong = [t for t in legit if not allowed(anchor(platform), t)]
     if wrong:
         failures.append(f"anchored platform rules refuse legitimate values: {wrong}")
