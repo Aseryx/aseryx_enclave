@@ -6,7 +6,7 @@ export ENCLAVE_ENGINE_WASM ?= $(abspath engine/appraisal_core_wasm_bg.wasm)
 export ENCLAVE_CIRCUITS ?= $(abspath .cache/circuits)
 export ENCLAVE_TABULAR_FIXTURES ?= $(abspath ../aseryx_zk_server/tests/fixtures/tabular_v12)
 
-.PHONY: help fmt fmt-check clippy circuits test doc policy-tests check
+.PHONY: help fmt fmt-check clippy circuits test doc policy-tests secrets check
 
 help: ## List the targets
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | sed 's/:.*## /\t/'
@@ -33,4 +33,11 @@ policy-tests: ## Test the policy anchoring and the policy checker
 	python3 -m unittest discover -s scripts -p 'test_*.py'
 	python3 scripts/check-policy.py --self-test
 
-check: fmt-check clippy test doc policy-tests ## Run every gate
+secrets: ## Scan the working tree (tracked and untracked files that are not ignored) and the git history for secrets
+	gitleaks git --no-banner --redact --config .gitleaks.toml .
+	rm -rf target/secrets-scan && mkdir -p target/secrets-scan
+	git ls-files --cached --others --exclude-standard -z | xargs -0 tar -cf - | tar -xf - -C target/secrets-scan
+	cd target/secrets-scan && gitleaks dir --no-banner --redact --config ../../.gitleaks.toml .
+	rm -rf target/secrets-scan
+
+check: fmt-check clippy test doc policy-tests secrets ## Run every gate

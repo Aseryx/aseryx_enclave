@@ -1,3 +1,9 @@
 /target/
 **/target/
 .cache/
+
+# Local secrets and run outputs
+.env
+.env.*
+run07/
+out*/

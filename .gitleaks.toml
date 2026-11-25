@@ -1,0 +1,19 @@
+# CI and `make secrets` run gitleaks over the working tree and the git history. The findings they allowlist are not
+# secrets: public Microsoft-signed Azure Attestation test tokens and SHA-256 pins.
+title = "aseryx_enclave"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Public attestation test tokens and SHA-256 pins carry no secret"
+paths = [
+  # Tokens captured from Azure Attestation in the spike: signed by Microsoft, public
+  '''^spike/0\.1/fixtures/maa-token-valid\.jwt$''',
+  '''^spike/0\.4a/fixtures/maa-token-job\.jwt$''',
+  # The same tokens' decoded claims (the SEV-SNP key digests in them are public measurements)
+  '''^spike/0\.1/fixtures/maa-token-valid\.claims\.json$''',
+  '''^spike/0\.4a/fixtures/maa-token-job\.claims\.json$''',
+  # SHA-256 values of the circuit artifacts and verification keys
+  '''^harness/circuit-pins\.json$''',
+]
