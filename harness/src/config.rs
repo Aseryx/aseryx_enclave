@@ -18,6 +18,9 @@ const MAX_PARALLEL: usize = 64;
 const DEFAULT_DEADLINE_SECS: u64 = 6 * 3600;
 const MAX_RPC_URLS: usize = 8;
 const GIB: u64 = 1 << 30;
+/// How far under a whole number of gigabytes a container's memory limit may be and still count as that number, for the
+/// platform's own use of the memory it is given.
+const OVERHEAD_TOLERANCE: u64 = GIB / 5;
 /// WebAssembly linear memory cannot exceed 4 GiB.
 const WASM_MEMORY_LIMIT: u64 = 4 * GIB;
 
@@ -175,15 +178,16 @@ impl Config {
     }
 }
 
-/// The container's memory in whole gigabytes, from the text of the cgroup's `memory.max`.
+/// The container's memory in whole gigabytes, from the text of the cgroup's `memory.max`: the limit rounded down after
+/// adding 0.2 GiB, so a 2 GB container that reports a little under 2 GiB is 2 GB and not 1.
 ///
 /// # Errors
 ///
-/// [`ConfigError::Memory`] for `max` (no limit), text that is not a number, or a limit below 1 GB or above 32 GB.
+/// [`ConfigError::Memory`] for `max` (no limit), text that is not a number, or a limit that is not between 1 and 32 GB.
 pub fn memory_gb(cgroup_memory_max: &str) -> Result<u32, ConfigError> {
     let bytes: u64 =
         number("memory.max", cgroup_memory_max.trim()).map_err(|_| ConfigError::Memory)?;
-    u32::try_from(bytes / GIB)
+    u32::try_from(bytes.saturating_add(OVERHEAD_TOLERANCE) / GIB)
         .ok()
         .filter(|gb| (1..=32).contains(gb))
         .ok_or(ConfigError::Memory)
