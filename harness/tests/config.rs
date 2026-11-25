@@ -196,12 +196,19 @@ fn memory_is_the_cgroup_limit_in_whole_gigabytes() {
     assert_eq!(memory_gb(&format!("{}", 4 * gb + gb / 2)), Ok(4));
     assert_eq!(memory_gb(&format!("{gb}")), Ok(1));
     assert_eq!(memory_gb(&format!("{}", 32 * gb)), Ok(32));
+    // A little under a whole number counts as that number, down to 0.2 GiB under
+    let tolerance = gb / 5;
+    assert_eq!(memory_gb(&format!("{}", 2 * gb - tolerance)), Ok(2));
+    assert_eq!(memory_gb(&format!("{}", 2 * gb - tolerance - 1)), Ok(1));
+    assert_eq!(memory_gb(&format!("{}", gb - tolerance)), Ok(1));
+    assert_eq!(memory_gb(&format!("{}", 32 * gb + gb / 2)), Ok(32));
     for bad in [
         "max\n",
         "",
         "x",
         "-1",
-        &format!("{}", gb - 1),
+        &format!("{}", gb - tolerance - 1),
+        &format!("{}", 33 * gb - tolerance),
         &format!("{}", 33 * gb),
         "99999999999999999999999",
     ] {
