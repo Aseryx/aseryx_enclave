@@ -1,0 +1,2 @@
+# The goldens are byte-exact inputs (some have CRLF line endings, a BOM or Windows-1252 text): git must not touch them
+harness/tests/tabular/** -text
