@@ -35,6 +35,18 @@
       "source": "aseryx_application client/src/shared/threshold/__tests__/threshold_vectors.json, the vectors the app, the API and the SDK share",
       "sourceCommit": "3e43c8b4",
       "sha256": "c795fa26c93dbee2b4d8dcabbad80e7b93690068295714b583eb070091c670ed"
+    },
+    {
+      "file": "job-response-appraisal.json",
+      "source": "aseryx_api supabase/functions/tests/fixtures/attested/job-response-appraisal.json, written by tests/attested-appraisal/handler.test.ts with ASERYX_UPDATE_FIXTURES=1",
+      "sourceCommit": "2c21831",
+      "sha256": "9f885f7dbeebc7f4fc79b3bca5c1b1d4bc207eeede3f4f6823a9c4943103a3ef"
+    },
+    {
+      "file": "job-response-threshold.json",
+      "source": "aseryx_api supabase/functions/tests/fixtures/attested/job-response-threshold.json, written by tests/attested-appraisal/handler.test.ts with ASERYX_UPDATE_FIXTURES=1",
+      "sourceCommit": "2c21831",
+      "sha256": "0b2a6dd044df5b9ad4ec096f2e2ed636342f6e707cd6b3275d6dad682bd6f169"
     }
   ]
 }
