@@ -531,37 +531,41 @@ fn execute_data(
     inputs: &JobInputs,
 ) -> Result<(Vec<Value>, JobKind), ErrorCode> {
     let verified = verify_consent(services, claimed, inputs)?;
-    let mut key = release_key(
-        services,
-        claimed,
-        "sealed",
-        &verified.manifest.key_wrap,
-        &verified.digest,
-    )?;
-    let outcome = (|| {
-        match services.cache.ensure_room(
-            verified.manifest.chunks.len(),
-            chunk_limit(verified.manifest.chunk_size),
-        ) {
-            Ok(()) => {}
-            Err(StoreError::NoRoom) => return Err(ErrorCode::TooLarge),
-            Err(_) => return Err(ErrorCode::FetchFailed),
-        }
-        read(
-            services.cache.fill(
-                &verified.manifest.chunks,
-                services.fetcher,
-                services.parallel_fetches,
-                chunk_limit(verified.manifest.chunk_size),
-            ),
-            ErrorCode::FetchFailed,
-        )?;
-        match inputs.kind {
-            JobKind::Appraisal => appraise(services, &verified, &key),
-            JobKind::Threshold => threshold(services, inputs, &verified, &key),
-        }
-    })();
-    key.fill(0);
+    let manifest = &verified.manifest;
+    let max_chunk = chunk_limit(manifest.chunk_size);
+    match services.cache.ensure_room(manifest.chunks.len(), max_chunk) {
+        Ok(()) => {}
+        Err(StoreError::NoRoom) => return Err(ErrorCode::TooLarge),
+        Err(_) => return Err(ErrorCode::FetchFailed),
+    }
+    // The ciphertext needs no key: the chunks download while the key is released, and the first pass parses each chunk as
+    // it lands.
+    let outcome = std::thread::scope(|scope| {
+        services.cache.start_fetching(
+            scope,
+            &manifest.chunks,
+            services.fetcher,
+            services.parallel_fetches,
+            max_chunk,
+        );
+        let outcome = release_key(
+            services,
+            claimed,
+            "sealed",
+            &manifest.key_wrap,
+            &verified.digest,
+        )
+        .and_then(|mut key| {
+            let outcome = match inputs.kind {
+                JobKind::Appraisal => appraise(services, &verified, &key),
+                JobKind::Threshold => threshold(services, inputs, &verified, &key),
+            };
+            key.fill(0);
+            outcome
+        });
+        services.cache.cancel();
+        outcome
+    });
     Ok((outcome?, inputs.kind))
 }
 

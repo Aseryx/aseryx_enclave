@@ -316,3 +316,88 @@ fn a_chunk_shorter_than_a_tag_is_refused() {
     assert!(matches!(error, StoreError::TooShort));
     std::fs::remove_dir_all(dir).expect("cleanup");
 }
+
+/// A fetcher that holds each chunk back for a while, so the passes start before the chunks have landed.
+struct Late {
+    inner: Blobs,
+    delay: Duration,
+}
+
+impl Fetcher for Late {
+    fn fetch(&self, cid: &str, max_bytes: u64) -> Result<Vec<u8>, StoreError> {
+        std::thread::sleep(self.delay);
+        self.inner.fetch(cid, max_bytes)
+    }
+}
+
+/// Chunks that land while the passes run give the same output as chunks that were there before: the first pass waits for
+/// each chunk in order, and the later passes find them all on disk.
+#[test]
+fn chunks_that_land_during_the_passes_give_the_same_output() {
+    let module = module();
+    let plain = golden();
+    let expected: [u8; 32] = Sha256::digest(&plain).into();
+    let (text, blobs) = encrypt(&plain, 1000, &KEY);
+    let manifest = Manifest::parse(&text).expect("manifest");
+    assert!(manifest.chunks.len() > 4, "the test needs several chunks");
+    let dir = temp_dir("pipeline-late");
+    let cache = CipherCache::new(&dir).expect("cache");
+    let fetcher = Late {
+        inner: Blobs::new(blobs),
+        delay: Duration::from_millis(30),
+    };
+    let output = std::thread::scope(|scope| {
+        cache.start_fetching(scope, &manifest.chunks, &fetcher, 2, LIMIT);
+        let output = run_passes(
+            start(&module, &manifest),
+            &manifest,
+            &KEY,
+            &cache,
+            &expected,
+        );
+        cache.cancel();
+        output
+    })
+    .expect("passes");
+    assert_eq!(output, direct(&module, &plain));
+    let stats = cache.fetch_stats();
+    assert_eq!(stats.chunks, manifest.chunks.len() as u64);
+    assert_eq!(
+        fetcher.inner.fetches.load(Ordering::SeqCst),
+        manifest.chunks.len(),
+        "every chunk is fetched once, however many passes read it"
+    );
+    std::fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// A chunk that never arrives ends the passes with the fetch code instead of hanging them.
+#[test]
+fn a_chunk_that_never_arrives_ends_the_passes_with_a_fetch_failure() {
+    let module = module();
+    let plain = golden();
+    let expected: [u8; 32] = Sha256::digest(&plain).into();
+    let (text, mut blobs) = encrypt(&plain, 1000, &KEY);
+    let manifest = Manifest::parse(&text).expect("manifest");
+    blobs.remove("QmChunk3");
+    let dir = temp_dir("pipeline-missing");
+    let cache = CipherCache::new(&dir).expect("cache");
+    let fetcher = Late {
+        inner: Blobs::new(blobs),
+        delay: Duration::from_millis(10),
+    };
+    let error = std::thread::scope(|scope| {
+        cache.start_fetching(scope, &manifest.chunks, &fetcher, 2, LIMIT);
+        let output = run_passes(
+            start(&module, &manifest),
+            &manifest,
+            &KEY,
+            &cache,
+            &expected,
+        );
+        cache.cancel();
+        output
+    })
+    .expect_err("a chunk is missing");
+    assert_eq!(error.code(), ErrorCode::FetchFailed);
+    std::fs::remove_dir_all(dir).expect("cleanup");
+}
