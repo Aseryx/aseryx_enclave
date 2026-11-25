@@ -5,7 +5,7 @@ mod common;
 use aseryx_enclave_harness::api::{ApiClient, ApiJobSource};
 use aseryx_enclave_harness::claim::{ClaimError, JobSource};
 use aseryx_enclave_harness::consent::Bytes32;
-use aseryx_enclave_harness::job::{ApiError, JobApi, JobInputs, JobKind};
+use aseryx_enclave_harness::job::{ApiError, DisputeType, Job, JobApi, JobInputs, JobKind};
 use aseryx_enclave_harness::runtime_data::RuntimeData;
 use base64::Engine;
 use common::serve_once;
@@ -119,9 +119,12 @@ fn request_body(request: &str) -> Value {
 #[test]
 fn the_job_request_carries_the_token_and_the_runtime_data() {
     let (url, seen) = serve_once("200 OK", INPUTS);
-    let inputs = ApiClient::new(&url)
+    let Job::Data(inputs) = ApiClient::new(&url)
         .job("a.b.c", "cnVudGltZQ==")
-        .expect("inputs");
+        .expect("inputs")
+    else {
+        panic!("a dataset job");
+    };
     assert_eq!(inputs.kind, JobKind::Appraisal);
     assert_eq!(inputs.manifest_cid, "QmManifest");
     assert_eq!(inputs.dataset, "0123456789abcdef0123456789abcdef");
@@ -215,3 +218,46 @@ fn the_apis_job_responses_parse_as_job_inputs() {
     assert!(threshold.encrypted_label.is_some());
     assert_eq!(threshold.dataset, "0123456789abcdef0123456789abcdef");
 }
+
+/// A dispute job parses as a dispute, with its evidence and, for a threshold dispute, its check; anything else with a
+/// kind of its own is a dataset job.
+#[test]
+fn a_dispute_response_parses_as_a_dispute_job() {
+    let base = serde_json::json!({
+        "jobId": JOB_ID, "kind": "dispute", "family": "tabular", "consent": {"disputeId": "41"},
+        "consentSignature": "0xab", "disputeId": "41", "disputeType": "label_mismatch", "tokenId": "7",
+        "dataset": "0123456789abcdef0123456789abcdef", "buyer": "0x1234567890abcdef1234567890abcdef12345678",
+        "evidenceSealed": {"format": "aseryx-sealed-evidence-key-v1"},
+        "evidence": {"manifestUrl": "https://s/m", "chunkUrls": ["https://s/0", "https://s/1"], "labelUrl": "https://s/l", "expiresAt": "2026-11-25T02:00:00Z"},
+        "licenceLabelHash": "12345",
+    });
+    let Job::Dispute(label) = serde_json::from_value::<Job>(base.clone()).expect("dispute") else {
+        panic!("a dispute");
+    };
+    assert_eq!(label.dispute_type, DisputeType::LabelMismatch);
+    assert_eq!(label.evidence.chunk_urls.len(), 2);
+    assert_eq!(label.licence_label_hash, "12345");
+    assert_eq!(label.check, None);
+    let mut threshold = base;
+    threshold["disputeType"] = serde_json::json!("false_threshold");
+    threshold["check"] = serde_json::json!({
+        "checkHash": format!("0x{}", "c1".repeat(32)),
+        "conditions": [{"column": "age", "min": "1"}],
+        "allowedFailurePermille": 50, "stepPermille": 5,
+    });
+    let Job::Dispute(with_check) = serde_json::from_value::<Job>(threshold).expect("dispute")
+    else {
+        panic!("a dispute");
+    };
+    assert_eq!(with_check.dispute_type, DisputeType::FalseThreshold);
+    assert_eq!(
+        with_check.check.expect("check").allowed_failure_permille,
+        50
+    );
+    // Not a dispute: a kind that is not one of the three, and a dispute missing its evidence
+    assert!(serde_json::from_str::<Job>(r#"{"kind": "nonsense"}"#).is_err());
+    assert!(serde_json::from_str::<Job>(r#"{"kind": "dispute"}"#).is_err());
+    assert!(serde_json::from_str::<Job>("[]").is_err());
+}
+
+const JOB_ID: &str = "0xd828621b01841c9a5630937da5ffb06cf43417178bee1149d90b84ca148408fa";

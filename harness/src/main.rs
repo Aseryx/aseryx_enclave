@@ -12,7 +12,7 @@ use aseryx_enclave_harness::engine::{EngineModule, Limits};
 use aseryx_enclave_harness::job::{Services, run_job};
 use aseryx_enclave_harness::lit::ApiRelay;
 use aseryx_enclave_harness::prove::{ArkProver, BucketSource, parse_pins};
-use aseryx_enclave_harness::store::{CipherCache, IpfsGateway};
+use aseryx_enclave_harness::store::{CipherCache, HttpFetcher, IpfsGateway};
 use std::process::ExitCode;
 
 const CGROUP_MEMORY_MAX: &str = "/sys/fs/cgroup/memory.max";
@@ -69,6 +69,7 @@ fn main() -> ExitCode {
     let urls: Vec<&str> = config.rpc_urls.iter().map(String::as_str).collect();
     let chain = RpcChain::new(config.registry, &urls);
     let fetcher = IpfsGateway::new(&config.ipfs_gateway);
+    let evidence = HttpFetcher::new();
     let artifacts = BucketSource::new(&config.artifacts_url);
     let prover = ArkProver::new(pins, &artifacts);
 
@@ -79,6 +80,7 @@ fn main() -> ExitCode {
         releaser: &releaser,
         chain: &chain,
         fetcher: &fetcher,
+        evidence: &evidence,
         cache: &cache,
         engine: &engine,
         prover: &prover,
