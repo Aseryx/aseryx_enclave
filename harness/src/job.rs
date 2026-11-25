@@ -20,7 +20,7 @@ use crate::result::{
     JobFacts, Proof, appraisal_result, classify_count, error_result, sign_result, threshold_answer,
     threshold_refusal,
 };
-use crate::store::{CipherCache, Fetcher, MAX_MANIFEST_BYTES, UrlFetcher, chunk_limit};
+use crate::store::{CipherCache, Fetcher, MAX_MANIFEST_BYTES, StoreError, UrlFetcher, chunk_limit};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use serde::Deserialize;
@@ -539,6 +539,14 @@ fn execute_data(
         &verified.digest,
     )?;
     let outcome = (|| {
+        match services.cache.ensure_room(
+            verified.manifest.chunks.len(),
+            chunk_limit(verified.manifest.chunk_size),
+        ) {
+            Ok(()) => {}
+            Err(StoreError::NoRoom) => return Err(ErrorCode::TooLarge),
+            Err(_) => return Err(ErrorCode::FetchFailed),
+        }
         read(
             services.cache.fill(
                 &verified.manifest.chunks,

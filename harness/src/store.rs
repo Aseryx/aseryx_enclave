@@ -25,7 +25,13 @@ pub enum StoreError {
     /// The cache directory could not be written or read.
     #[error("the chunk cache failed: {0}")]
     Cache(#[from] io::Error),
+    /// The disk has less room than the dataset's ciphertext and the workload's own files need.
+    #[error("the disk has no room for the dataset")]
+    NoRoom,
 }
+
+/// Disk the workload keeps for its own files next to the ciphertext: the circuit artifacts, the proof and the label.
+pub const DISK_RESERVE_BYTES: u64 = 2 << 30;
 
 /// The most a chunk of `chunk_size` plaintext bytes can weigh as stored: gzip of data that does not compress adds a few
 /// bytes per block and a header, and AES-GCM adds a 16-byte tag. The limit leaves a generous margin and still stops a
@@ -193,9 +199,19 @@ impl Fetcher for UrlChunks<'_> {
     }
 }
 
+/// The free bytes on the disk that holds a directory, as an unprivileged process can use them.
+fn free_bytes(dir: &Path) -> io::Result<u64> {
+    let stat = rustix::fs::statvfs(dir)?;
+    Ok(stat.f_bavail.saturating_mul(stat.f_frsize))
+}
+
+/// Reads how many bytes are free on the disk holding a directory.
+type FreeSpace = Box<dyn Fn(&Path) -> io::Result<u64> + Send + Sync>;
+
 /// A directory of ciphertext chunks, one file per content identifier.
 pub struct CipherCache {
     dir: PathBuf,
+    free_bytes: FreeSpace,
 }
 
 impl CipherCache {
@@ -205,10 +221,39 @@ impl CipherCache {
     ///
     /// [`StoreError::Cache`] if the directory cannot be created.
     pub fn new(dir: &Path) -> Result<Self, StoreError> {
+        Self::with_free_space(dir, free_bytes)
+    }
+
+    /// A cache in `dir` that asks `free_bytes` how much room the disk holding it has, for tests that need a full disk.
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError::Cache`] if the directory cannot be created.
+    pub fn with_free_space(
+        dir: &Path,
+        free_bytes: impl Fn(&Path) -> io::Result<u64> + Send + Sync + 'static,
+    ) -> Result<Self, StoreError> {
         fs::create_dir_all(dir)?;
         Ok(Self {
             dir: dir.to_owned(),
+            free_bytes: Box::new(free_bytes),
         })
+    }
+
+    /// Checks, before anything is fetched, that the disk can hold every chunk at its largest (`max_chunk_bytes`, see
+    /// [`chunk_limit`]) and [`DISK_RESERVE_BYTES`] besides.
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError::NoRoom`] when it cannot; [`StoreError::Cache`] when the free space cannot be read.
+    pub fn ensure_room(&self, chunk_count: usize, max_chunk_bytes: u64) -> Result<(), StoreError> {
+        let needed = (chunk_count as u64)
+            .saturating_mul(max_chunk_bytes)
+            .saturating_add(DISK_RESERVE_BYTES);
+        if (self.free_bytes)(&self.dir)? < needed {
+            return Err(StoreError::NoRoom);
+        }
+        Ok(())
     }
 
     fn path(&self, cid: &str) -> PathBuf {

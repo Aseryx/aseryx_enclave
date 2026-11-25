@@ -396,6 +396,7 @@ dependencies = [
  "hpke",
  "k256 0.14.0",
  "num-bigint",
+ "rustix",
  "serde",
  "serde_json",
  "sha2 0.11.1",
