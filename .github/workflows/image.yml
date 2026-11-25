@@ -10,6 +10,7 @@ on:
     paths:
       - ".github/workflows/image.yml"
       - "Dockerfile"
+      - "SOURCE_DATE_EPOCH"
       - ".dockerignore"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -42,7 +43,7 @@ jobs:
 
       - name: Build the image twice
         run: |
-          epoch=$(git log -1 --format=%ct)
+          epoch=$(cat SOURCE_DATE_EPOCH)
           mkdir -p out
           for n in a b; do
             docker buildx build --builder repro --platform linux/amd64 --no-cache \

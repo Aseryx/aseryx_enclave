@@ -14,6 +14,7 @@ on:
       - "scripts/*.py"
       - "release/**"
       - "Dockerfile"
+      - "SOURCE_DATE_EPOCH"
       - "Cargo.toml"
       - "Cargo.lock"
       - "harness/Cargo.toml"
@@ -39,7 +40,7 @@ jobs:
           mkdir -p out
           docker buildx build --builder repro --platform linux/amd64 --no-cache \
             --provenance=false --sbom=false \
-            --build-arg SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" \
+            --build-arg SOURCE_DATE_EPOCH="$(cat SOURCE_DATE_EPOCH)" \
             --output "type=docker,dest=out/image.tar,name=aseryx-enclave:release,rewrite-timestamp=true" .
           docker load -i out/image.tar
           docker image inspect aseryx-enclave:release --format '{{.Id}}'
