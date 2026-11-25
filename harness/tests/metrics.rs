@@ -86,3 +86,16 @@ fn passes_beyond_the_cap_are_added_into_the_last_listed() {
         "the wait counts every pass"
     );
 }
+
+/// Values past what the canonical JSON can carry are held at 2^53 - 1, so the object still signs.
+#[test]
+fn a_value_past_the_signable_limit_is_held_at_the_limit() {
+    let recorder = Recorder::new();
+    let cache = CipherCache::new(&unique_dir("metrics-limit")).expect("cache");
+    recorder.record_engine_peak(u64::MAX);
+    let m = recorder.snapshot_with(&cache, u64::MAX);
+    let limit = (1u64 << 53) - 1;
+    assert_eq!(m["enginePeakBytes"], limit);
+    assert_eq!(m["rssPeakBytes"], limit);
+    assert!(aseryx_enclave_harness::consent::canonical_json(&m).is_ok());
+}

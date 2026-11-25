@@ -751,7 +751,7 @@ fn checked_metrics(body: &Value) -> Value {
     }
     fn integers(value: &Value) {
         match value {
-            Value::Number(n) => assert!(n.as_u64().is_some_and(|n| n <= 1 << 53), "{n}"),
+            Value::Number(n) => assert!(n.as_u64().is_some_and(|n| n < 1 << 53), "{n}"),
             Value::Array(items) => items.iter().for_each(integers),
             Value::Object(map) => map.values().for_each(integers),
             other => panic!("not an integer: {other}"),
