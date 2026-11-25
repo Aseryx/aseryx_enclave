@@ -2,7 +2,8 @@ name: image
 
 # Builds the workload image twice from scratch and fails unless both builds have the same digest. A push to a branch
 # pushes nothing. A manual run with `publish` set also copies the verified image to the public GitHub Container
-# Registry under a tag of the commit and checks that the registry holds the digest the builds produced.
+# Registry under a tag of the commit and checks that the registry holds the digest the builds produced; only a run
+# on main can publish.
 
 on:
   push:
@@ -66,7 +67,7 @@ jobs:
           if-no-files-found: error
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'
         with:
           name: image-oci
           path: |
@@ -77,7 +78,7 @@ jobs:
 
   publish:
     needs: reproducible
-    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
