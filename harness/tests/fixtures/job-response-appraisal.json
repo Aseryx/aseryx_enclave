@@ -1,0 +1,24 @@
+{
+  "jobId": "0x0000000000000000000000000000000000000000000000000000000000000001",
+  "kind": "appraisal",
+  "family": "tabular",
+  "consent": {
+    "tokenId": "4",
+    "dataset": "0123456789abcdef0123456789abcdef",
+    "manifestCid": "QmManifest",
+    "plaintextHash": "0x883e742392eaff8c4f9c5b386e11664009ececf7074271b994e075bc440f35da",
+    "family": "tabular",
+    "rulesVersion": "v12.0",
+    "workloadIdentity": "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "jobId": "0x0000000000000000000000000000000000000000000000000000000000000001",
+    "minBootloaderSvn": 10,
+    "minTeeSvn": 0,
+    "minSnpSvn": 23,
+    "minMicrocodeSvn": 84,
+    "expiresAt": "1795556800"
+  },
+  "consentSignature": "0xababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+  "tokenId": "4",
+  "dataset": "0123456789abcdef0123456789abcdef",
+  "manifestCid": "QmManifest"
+}

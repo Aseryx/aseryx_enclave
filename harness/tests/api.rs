@@ -5,7 +5,7 @@ mod common;
 use aseryx_enclave_harness::api::{ApiClient, ApiJobSource};
 use aseryx_enclave_harness::claim::{ClaimError, JobSource};
 use aseryx_enclave_harness::consent::Bytes32;
-use aseryx_enclave_harness::job::{ApiError, JobApi, JobKind};
+use aseryx_enclave_harness::job::{ApiError, JobApi, JobInputs, JobKind};
 use aseryx_enclave_harness::runtime_data::RuntimeData;
 use base64::Engine;
 use common::serve_once;
@@ -179,4 +179,39 @@ fn a_result_is_posted_as_given_and_only_200_accepts_it() {
     drop(listener);
     assert_eq!(ApiClient::new(&gone).post_result(&body), Err(ApiError));
     assert_eq!(ApiClient::new(&gone).job("a.b.c", "x"), Err(ApiError));
+}
+
+fn fixture(name: &str) -> String {
+    std::fs::read_to_string(format!(
+        "{}/tests/fixtures/{name}",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .expect("fixture")
+}
+
+/// The API's job response of each kind, written by the API's own tests, parses as the job inputs: an appraisal job with
+/// no checks, and a threshold job whose checks carry the hash, the JSON and the count the container reads.
+#[test]
+fn the_apis_job_responses_parse_as_job_inputs() {
+    let appraisal: JobInputs =
+        serde_json::from_str(&fixture("job-response-appraisal.json")).expect("appraisal");
+    assert_eq!(appraisal.kind, JobKind::Appraisal);
+    assert!(appraisal.checks.is_empty());
+    assert_eq!(appraisal.encrypted_label, None);
+    let threshold: JobInputs =
+        serde_json::from_str(&fixture("job-response-threshold.json")).expect("threshold");
+    assert_eq!(threshold.kind, JobKind::Threshold);
+    assert_eq!(threshold.checks.len(), 1);
+    let check = &threshold.checks[0];
+    assert_eq!(check.check_hash, Bytes32([0xc1; 32]));
+    assert_eq!(check.conditions, 1);
+    assert_eq!(check.allowed_failure_permille, 0);
+    let parsed = aseryx_enclave_harness::check::parse_check(&check.check_json).expect("check json");
+    assert_eq!(parsed.conditions, check.conditions);
+    assert_eq!(
+        parsed.allowed_failure_permille,
+        check.allowed_failure_permille
+    );
+    assert!(threshold.encrypted_label.is_some());
+    assert_eq!(threshold.dataset, "0123456789abcdef0123456789abcdef");
 }
