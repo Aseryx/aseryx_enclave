@@ -41,10 +41,12 @@ jobs:
           }
           JSON
           az confcom acipolicygen --input out/input.json --disable-stdio --print-policy > out/policy.txt
-          grep -o '"pattern":"ENCLAVE[^}]*}' out/policy.txt || head -c 2000 out/policy.txt
+          base64 -d out/policy.txt > out/policy.rego
+          grep -o '"pattern":"ENCLAVE[^}]*}' out/policy.rego || echo 'no ENCLAVE rule in the first'
       - name: The same with other key names
         continue-on-error: true
         run: |
           sed 's/environmentRules/environment_rules/' out/input.json > out/input2.json
           az confcom acipolicygen --input out/input2.json --disable-stdio --print-policy > out/policy2.txt || true
-          grep -o '"pattern":"ENCLAVE[^}]*}' out/policy2.txt || head -c 1000 out/policy2.txt
+          base64 -d out/policy2.txt > out/policy2.rego
+          grep -o '"pattern":"ENCLAVE[^}]*}' out/policy2.rego || echo 'no ENCLAVE rule in the second'
