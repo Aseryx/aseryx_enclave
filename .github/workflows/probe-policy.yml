@@ -7,6 +7,11 @@ name: probe-policy
 # workload. Nothing is pushed or deployed.
 
 on:
+  push:
+    branches: ["spike/**"]
+    paths:
+      - ".github/workflows/probe-policy.yml"
+      - "spike/0.7/probe-template.json"
   workflow_dispatch:
 
 permissions:
