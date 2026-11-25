@@ -28,6 +28,7 @@ fn a_malformed_setting_stops_it_without_echoing_the_value() {
     let (code, stderr) = run(&[
         ("ENCLAVE_RPC_URLS", "https://rpc.example"),
         ("ENCLAVE_MEMORY_GB", "4"),
+        ("ENCLAVE_IPFS_GATEWAYS", "https://gateway.example"),
         ("ENCLAVE_CHAIN_ID", "43113"),
         ("ENCLAVE_API_URL", "http://not-https.example/secretish"),
     ]);
