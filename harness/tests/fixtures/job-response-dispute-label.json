@@ -1,0 +1,42 @@
+{
+  "jobId": "0x0000000000000000000000000000000000000000000000000000000000000005",
+  "kind": "dispute",
+  "family": "tabular",
+  "consent": {
+    "disputeId": "41",
+    "tokenId": "4",
+    "dataset": "0123456789abcdef0123456789abcdef",
+    "buyer": "0x1563915e194d8cfba1943570603f7606a3115508",
+    "evidenceHash": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "family": "tabular",
+    "rulesVersion": "v12.0",
+    "workloadIdentity": "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "jobId": "0x0000000000000000000000000000000000000000000000000000000000000005",
+    "minBootloaderSvn": 10,
+    "minTeeSvn": 0,
+    "minSnpSvn": 23,
+    "minMicrocodeSvn": 84,
+    "expiresAt": "1795556800"
+  },
+  "consentSignature": "0xababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+  "disputeId": "41",
+  "disputeType": "label_mismatch",
+  "tokenId": "4",
+  "dataset": "0123456789abcdef0123456789abcdef",
+  "buyer": "0x1563915e194d8cfba1943570603f7606a3115508",
+  "evidenceSealed": {
+    "format": "aseryx-sealed-evidence-key-v1",
+    "enc": "x"
+  },
+  "evidence": {
+    "manifestUrl": "https://signed.example/41/manifest.json?t=3600",
+    "labelUrl": "https://signed.example/41/label?t=3600",
+    "chunkUrls": [
+      "https://signed.example/41/chunk-0?t=3600",
+      "https://signed.example/41/chunk-1?t=3600",
+      "https://signed.example/41/chunk-2?t=3600"
+    ],
+    "expiresAt": "2026-11-24T22:16:40.000Z"
+  },
+  "licenceLabelHash": "777"
+}

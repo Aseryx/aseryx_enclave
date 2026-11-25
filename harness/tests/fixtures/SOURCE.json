@@ -47,6 +47,18 @@
       "source": "aseryx_api supabase/functions/tests/fixtures/attested/job-response-threshold.json, written by tests/attested-appraisal/handler.test.ts with ASERYX_UPDATE_FIXTURES=1",
       "sourceCommit": "2c21831",
       "sha256": "0b2a6dd044df5b9ad4ec096f2e2ed636342f6e707cd6b3275d6dad682bd6f169"
+    },
+    {
+      "file": "job-response-dispute-label.json",
+      "source": "aseryx_api supabase/functions/tests/fixtures/attested/job-response-dispute-label.json, written by tests/attested-appraisal/dispute.test.ts with ASERYX_UPDATE_FIXTURES=1",
+      "sourceCommit": "b1f17cc",
+      "sha256": "b21e887c3267c25bd8b23fc32e68a988e637b202b91ab7b93e8f1c57f79354c9"
+    },
+    {
+      "file": "job-response-dispute-threshold.json",
+      "source": "aseryx_api supabase/functions/tests/fixtures/attested/job-response-dispute-threshold.json, written by tests/attested-appraisal/dispute.test.ts with ASERYX_UPDATE_FIXTURES=1",
+      "sourceCommit": "b1f17cc",
+      "sha256": "e21113bded9cbade47414940cd6a478c577ec53c233b99944523c0ad725f6132"
     }
   ]
 }
