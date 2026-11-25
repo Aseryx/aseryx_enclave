@@ -1,0 +1,32 @@
+{
+  "tabular_appraisal_r7": {
+    "wasm": "7b8a174b94a8688593d08dd536891773d6389dd393f2365a7537955d8286234d",
+    "zkey": "e6637a7db25e36cfdca61e832408c73dbb7c68dedfedeb497a95c6e666ec7b20",
+    "verificationKey": "986426016d94b3e7a28f274b0c8ffa5e432bee4bd5637b6b51ffbf705418085d"
+  },
+  "threshold_r2_c1": {
+    "wasm": "9a4ba24fed9011eac0c6a339c1a07ed8b36ab0c539a8e04cccca3e4c8b12a75e",
+    "zkey": "8b95ae0f944352a769c61403ffb07c1d7c1f809066911852a78284f17c398138",
+    "verificationKey": "d7bf82da36abb2f66f956e84d115f29f8cf51e45bc29ea845881a86cf4cc41b5"
+  },
+  "threshold_r2_c2": {
+    "wasm": "2c88513d8f452eeeef7eedd5d01084fbe9ccfc071609b9bfba1645f40b1bfa47",
+    "zkey": "18fb8aa703f5e1bbdd3c134092a75bcb39a390918d8b91903fc3da0e4e7fbdfe",
+    "verificationKey": "5701c3dd3f8c873b46a058d7b98e53ae8e751e80aa39cdb3b3e6e81694e2a0b6"
+  },
+  "threshold_r2_c3": {
+    "wasm": "408de20d3165a1aad4684cf137a93ec7e77100724b5f8b6dab1ec9c77cc97c5a",
+    "zkey": "4e2c9fc6afb085636f9f2dd9875af5e7253a0409a723636265799cf34b564ee3",
+    "verificationKey": "f5b733b4296ebebdd815fd0e4f87c322d679638eda4f506e4d16ca9860d50504"
+  },
+  "threshold_r2_c4": {
+    "wasm": "ee4fe6e625b46ca8e7807781bfc2ee6fb6beb985fdf2bca58216cdde435a5258",
+    "zkey": "902c74e3f6e92dccb84c68e841b48465b07a80786b5384156cfab0f94c5e7ddf",
+    "verificationKey": "d69e01024155922b8017b75159da8b15843238eb3b3ac6cc4454dc725e3f74d5"
+  },
+  "threshold_r2_c5": {
+    "wasm": "fa35111335021a092162e2d6f8adb861128b2e2bdd5a8008a8879a49d5ccb546",
+    "zkey": "d96bbf4884ce4c318d08408de1818a438e17a2da72b51906a26bed4cdd222da4",
+    "verificationKey": "63ec38384d36768e9f8f1f1a5117f66f3064ad6a53e376165410af96c23ae3e6"
+  }
+}

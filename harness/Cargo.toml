@@ -7,6 +7,14 @@ description = "The workload that runs inside the attested container"
 
 [dependencies]
 aes-gcm = "0.11.1"
+ark-bn254 = "0.6.0"
+ark-ec = "0.6.0"
+ark-ff = "0.6.0"
+ark-groth16 = "0.6.0"
+ark-poly = "0.6.0"
+ark-relations = "0.6.0"
+ark-snark = "0.6.0"
+ark-std = "0.6.0"
 base64 = "0.23.1"
 flate2 = "1.1.11"
 getrandom = "0.4.3"
@@ -14,6 +22,7 @@ hex = "0.4.3"
 hkdf = "0.13.0"
 hpke = { version = "0.15.1", features = ["aes", "alloc", "getrandom", "hkdfsha2", "x25519"], default-features = false }
 k256 = { version = "0.14.0", features = ["ecdsa"] }
+num-bigint = "0.4"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
 sha2 = "0.11.1"
@@ -27,5 +36,7 @@ missing_docs = "deny"
 unsafe_code = "forbid"
 
 [dev-dependencies]
+ark-circom = "0.6.0"
 sha2 = "0.11.1"
+wasmer = { version = "6.1.0-rc.3", default-features = false, features = ["default"] }
 wat = "1.263.0"
