@@ -1,0 +1,7 @@
+*
+!Cargo.toml
+!Cargo.lock
+!harness/Cargo.toml
+!harness/src
+!harness/circuit-pins.json
+!engine

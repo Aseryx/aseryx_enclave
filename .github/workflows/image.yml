@@ -1,0 +1,58 @@
+name: image
+
+# Builds the workload image twice from scratch and fails unless both builds have the same digest. Nothing is pushed.
+
+on:
+  push:
+    branches: ["spike/**", "main"]
+    paths:
+      - ".github/workflows/image.yml"
+      - "Dockerfile"
+      - ".dockerignore"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "harness/Cargo.toml"
+      - "harness/src/**"
+      - "harness/circuit-pins.json"
+      - "engine/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reproducible:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Create the pinned BuildKit builder
+        run: |
+          docker buildx create --name repro --driver docker-container \
+            --driver-opt image=moby/buildkit:v0.35.1@sha256:baf6138eb8c37644800c7c913fba051e840ebb9ba13eaf92d92ef9a1712d0b4c
+          docker buildx inspect repro --bootstrap
+
+      - name: Build the image twice
+        run: |
+          epoch=$(git log -1 --format=%ct)
+          mkdir -p out
+          for n in a b; do
+            docker buildx build --builder repro --platform linux/amd64 --no-cache \
+              --provenance=false --sbom=false \
+              --build-arg SOURCE_DATE_EPOCH="$epoch" \
+              --output "type=oci,dest=out/image-$n.tar,rewrite-timestamp=true" .
+            tar -xOf "out/image-$n.tar" index.json | jq -r '.manifests[0].digest' > "out/digest-$n"
+            echo "build $n: $(cat out/digest-$n)"
+          done
+
+      - name: The two digests must be equal
+        run: |
+          cmp out/digest-a out/digest-b
+          echo "image digest $(cat out/digest-a)" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: image-digest
+          path: out/digest-*
+          if-no-files-found: error
