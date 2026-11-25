@@ -121,6 +121,7 @@ fn a_sidecar_without_a_port_and_a_longest_name_are_accepted() {
 #[test]
 fn malformed_values_are_refused() {
     let nine_urls = ["https://x.example"; 9].join(",");
+    let too_long = "a".repeat(65);
     let cases: Vec<(&str, &str)> = vec![
         ("ENCLAVE_API_URL", "http://p.supabase.co/f"),
         ("ENCLAVE_API_URL", "https://"),
@@ -157,7 +158,7 @@ fn malformed_values_are_refused() {
             "https://sharedeus.eus.attest.azure.net",
         ),
         ("ENCLAVE_APPRAISAL_CIRCUIT", "../x"),
-        ("ENCLAVE_APPRAISAL_CIRCUIT", &"a".repeat(65)),
+        ("ENCLAVE_APPRAISAL_CIRCUIT", &too_long),
         ("ENCLAVE_PARALLEL_FETCHES", "0"),
         ("ENCLAVE_PARALLEL_FETCHES", "65"),
         ("ENCLAVE_PARALLEL_FETCHES", "many"),
