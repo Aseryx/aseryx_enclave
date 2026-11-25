@@ -1,0 +1,89 @@
+name: policy
+
+# Generates the production (non-debug) confidential container policy for the release template from the image this commit
+# builds, at three container sizes, twice each. The policy hash is the workload identity an owner's consent names, so it
+# must not depend on the size, and every ENCLAVE_* environment rule must be pinned exactly (see scripts/check-policy.py).
+# Nothing is pushed or deployed.
+
+on:
+  push:
+    branches: ["spike/**", "main"]
+    paths:
+      - ".github/workflows/policy.yml"
+      - "scripts/check-policy.py"
+      - "release/**"
+      - "Dockerfile"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "harness/Cargo.toml"
+      - "harness/src/**"
+      - "harness/circuit-pins.json"
+      - "engine/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  policy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Build the image into Docker, where confcom reads it
+        run: |
+          docker buildx create --name repro --driver docker-container \
+            --driver-opt image=moby/buildkit:v0.35.1@sha256:baf6138eb8c37644800c7c913fba051e840ebb9ba13eaf92d92ef9a1712d0b4c
+          mkdir -p out
+          docker buildx build --builder repro --platform linux/amd64 --no-cache \
+            --provenance=false --sbom=false \
+            --build-arg SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" \
+            --output "type=docker,dest=out/image.tar,name=aseryx-enclave:release,rewrite-timestamp=true" .
+          docker load -i out/image.tar
+          docker image inspect aseryx-enclave:release --format '{{.Id}}'
+
+      - name: Install the pinned confcom extension
+        run: |
+          az extension add --name confcom --version 2.4.1 --yes
+          az version --output json
+
+      - name: What confcom does with a secure environment value (the memory setting's options)
+        continue-on-error: true
+        run: |
+          mkdir -p out/experiment
+          jq '(.resources[0].properties.containers[] | select(.name == "enclave-workload") | .properties.environmentVariables[] | select(.name == "ENCLAVE_MEMORY_GB")) |= {name: .name, secureValue: .value}' \
+            release/template.json > out/experiment/secure.json
+          az confcom acipolicygen --template-file out/experiment/secure.json -y
+          jq -r '.resources[0].properties.confidentialComputeProperties.ccePolicy' out/experiment/secure.json | base64 -d > out/experiment/secure.rego
+          grep -o '"pattern":"ENCLAVE_MEMORY_GB[^}]*}' out/experiment/secure.rego || echo "no memory rule"
+
+      - name: Generate the production policy for each size, twice
+        run: |
+          for size in 2 4 16; do
+            for n in a b; do
+              d="out/$size-$n"
+              mkdir -p "$d"
+              jq --argjson size "$size" '
+                (.resources[0].properties.containers[] | select(.name == "enclave-workload") | .properties.resources.requests.memoryInGB) = $size
+                | (.resources[0].properties.containers[] | select(.name == "enclave-workload") | .properties.environmentVariables[] | select(.name == "ENCLAVE_MEMORY_GB") | .value) = ($size | tostring)
+              ' release/template.json > "$d/template.json"
+              az confcom acipolicygen --template-file "$d/template.json" -y
+              jq -r '.resources[0].properties.confidentialComputeProperties.ccePolicy' "$d/template.json" | base64 -d > "$d/policy.rego"
+              sha256sum "$d/policy.rego" | cut -d' ' -f1 | tee "$d/policy.sha256"
+              python3 scripts/check-policy.py "$d/policy.rego" "$d/template.json" engine/appraisal_core_wasm_bg.wasm.sha256
+            done
+          done
+
+      - name: One policy hash for every size and every run
+        run: |
+          cat out/*/policy.sha256 | sort -u | tee out/hashes
+          [ "$(wc -l < out/hashes)" -eq 1 ]
+          echo "policy hash $(cat out/hashes)" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: release-policy
+          path: out/
+          if-no-files-found: error

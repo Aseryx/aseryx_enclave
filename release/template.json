@@ -1,0 +1,95 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "containerGroupName": {
+      "type": "String",
+      "defaultValue": "aseryx-enclave"
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.ContainerInstance/containerGroups",
+      "apiVersion": "2023-05-01",
+      "name": "[parameters('containerGroupName')]",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "containers": [
+          {
+            "name": "skr-sidecar-container",
+            "properties": {
+              "command": [
+                "/skr.sh"
+              ],
+              "environmentVariables": [],
+              "image": "mcr.microsoft.com/aci/skr:2.12",
+              "resources": {
+                "requests": {
+                  "cpu": 1,
+                  "memoryInGB": 1
+                }
+              },
+              "ports": [
+                {
+                  "port": 8080
+                }
+              ]
+            }
+          },
+          {
+            "name": "enclave-workload",
+            "properties": {
+              "environmentVariables": [
+                {
+                  "name": "ENCLAVE_API_URL",
+                  "value": "https://PLACEHOLDER.supabase.co/functions/v1/attested-appraisal"
+                },
+                {
+                  "name": "ENCLAVE_RPC_URLS",
+                  "value": "https://rpc-a.example/ext/bc/C/rpc,https://rpc-b.example/ext/bc/C/rpc"
+                },
+                {
+                  "name": "ENCLAVE_REGISTRY",
+                  "value": "0x5Db410D07931Efc7CF1d01545e773992Ab1988b2"
+                },
+                {
+                  "name": "ENCLAVE_CHAIN_ID",
+                  "value": "43113"
+                },
+                {
+                  "name": "ENCLAVE_IPFS_GATEWAY",
+                  "value": "https://gateway.example"
+                },
+                {
+                  "name": "ENCLAVE_ARTIFACTS_URL",
+                  "value": "https://PLACEHOLDER.supabase.co/storage/v1/object/public/zk-artifacts"
+                },
+                {
+                  "name": "ENCLAVE_ENGINE_SHA256",
+                  "value": "0xc4565b13e634c8c900a7d241ed141974e93eb6fb895e0b016a63cce36d35968c"
+                },
+                {
+                  "name": "ENCLAVE_MEMORY_GB",
+                  "value": "4"
+                }
+              ],
+              "image": "aseryx-enclave:release",
+              "resources": {
+                "requests": {
+                  "cpu": 1,
+                  "memoryInGB": 4
+                }
+              }
+            }
+          }
+        ],
+        "osType": "Linux",
+        "restartPolicy": "Never",
+        "sku": "Confidential",
+        "confidentialComputeProperties": {
+          "ccePolicy": ""
+        }
+      }
+    }
+  ]
+}
