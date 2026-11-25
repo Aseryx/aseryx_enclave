@@ -1,10 +1,10 @@
 CARGO ?= cargo
 
-# The engine module browsers run (engine/) and the appraisal-core fixtures, from the sibling checkout. The engine tests
+# The engine module browsers run (engine/) and the appraisal-core goldens (harness/tests/tabular). The engine tests
 # fail when either is missing.
 export ENCLAVE_ENGINE_WASM ?= $(abspath engine/appraisal_core_wasm_bg.wasm)
 export ENCLAVE_CIRCUITS ?= $(abspath .cache/circuits)
-export ENCLAVE_TABULAR_FIXTURES ?= $(abspath ../aseryx_zk_server/tests/fixtures/tabular_v12)
+export ENCLAVE_TABULAR_FIXTURES ?= $(abspath harness/tests/tabular)
 
 .PHONY: help fmt fmt-check clippy circuits test doc policy-tests secrets check
 
