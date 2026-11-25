@@ -1,10 +1,10 @@
 //! The settings: what is required, the defaults, and what is refused.
 
-use aseryx_enclave_harness::config::{Config, ConfigError, engine_memory_bytes, memory_gb};
+use aseryx_enclave_harness::config::{Config, ConfigError, check_memory, engine_memory_bytes};
 use std::collections::HashMap;
 use std::time::Duration;
 
-const REQUIRED: [(&str, &str); 7] = [
+const REQUIRED: [(&str, &str); 8] = [
     (
         "ENCLAVE_API_URL",
         "https://p.supabase.co/functions/v1/attested-appraisal",
@@ -18,6 +18,7 @@ const REQUIRED: [(&str, &str); 7] = [
         "0x5db410d07931efc7cf1d01545e773992ab1988b2",
     ),
     ("ENCLAVE_CHAIN_ID", "43113"),
+    ("ENCLAVE_MEMORY_GB", "4"),
     ("ENCLAVE_IPFS_GATEWAY", "https://gateway.example"),
     (
         "ENCLAVE_ARTIFACTS_URL",
@@ -56,6 +57,7 @@ fn the_required_settings_alone_give_the_defaults() {
     assert_eq!(config.parallel_fetches, 8);
     assert_eq!(config.engine_deadline, Duration::from_secs(6 * 3600));
     assert_eq!(config.chain_id, 43113);
+    assert_eq!(config.memory_gb, 4);
     assert_eq!(
         config.rpc_urls,
         ["https://a.example/rpc", "https://b.example/rpc"]
@@ -137,6 +139,10 @@ fn malformed_values_are_refused() {
         ),
         ("ENCLAVE_REGISTRY", "0x12"),
         ("ENCLAVE_CHAIN_ID", "0"),
+        ("ENCLAVE_MEMORY_GB", "0"),
+        ("ENCLAVE_MEMORY_GB", "33"),
+        ("ENCLAVE_MEMORY_GB", "4 GB"),
+        ("ENCLAVE_MEMORY_GB", "-4"),
         ("ENCLAVE_CHAIN_ID", "-1"),
         ("ENCLAVE_CHAIN_ID", "43113 "),
         ("ENCLAVE_CHAIN_ID", "99999999999999999999999"),
@@ -188,31 +194,34 @@ fn malformed_values_are_refused() {
     }
 }
 
-/// The memory comes from the cgroup limit in whole gigabytes, between 1 and 32.
+/// The cgroup must show at least 85% of the configured memory, in gibibytes: a decimal gigabyte container passes, one that
+/// the platform keeps much of does not.
 #[test]
-fn memory_is_the_cgroup_limit_in_whole_gigabytes() {
-    let gb: u64 = 1 << 30;
-    assert_eq!(memory_gb(&format!("{}\n", 4 * gb)), Ok(4));
-    assert_eq!(memory_gb(&format!("{}", 4 * gb + gb / 2)), Ok(4));
-    assert_eq!(memory_gb(&format!("{gb}")), Ok(1));
-    assert_eq!(memory_gb(&format!("{}", 32 * gb)), Ok(32));
-    // A little under a whole number counts as that number, down to 0.2 GiB under
-    let tolerance = gb / 5;
-    assert_eq!(memory_gb(&format!("{}", 2 * gb - tolerance)), Ok(2));
-    assert_eq!(memory_gb(&format!("{}", 2 * gb - tolerance - 1)), Ok(1));
-    assert_eq!(memory_gb(&format!("{}", gb - tolerance)), Ok(1));
-    assert_eq!(memory_gb(&format!("{}", 32 * gb + gb / 2)), Ok(32));
-    for bad in [
-        "max\n",
-        "",
-        "x",
-        "-1",
-        &format!("{}", gb - tolerance - 1),
-        &format!("{}", 33 * gb - tolerance),
-        &format!("{}", 33 * gb),
-        "99999999999999999999999",
+fn the_cgroup_must_show_most_of_the_configured_memory() {
+    let gib: u64 = 1 << 30;
+    // A decimal 2, 4 and 16 GB container is 93% of the gibibytes
+    for (gb, bytes) in [
+        (2u32, 2_000_000_000u64),
+        (4, 4_000_000_000),
+        (16, 16_000_000_000),
     ] {
-        assert_eq!(memory_gb(bad), Err(ConfigError::Memory), "{bad}");
+        assert_eq!(check_memory(&format!("{bytes}\n"), gb), Ok(()), "{gb} GB");
+    }
+    assert_eq!(check_memory(&format!("{}", 4 * gib), 4), Ok(()));
+    assert_eq!(
+        check_memory(&format!("{}", 8 * gib), 4),
+        Ok(()),
+        "more than configured"
+    );
+    // The floor is 85% of the gibibytes, exactly
+    let floor = 4 * gib / 100 * 85;
+    assert_eq!(check_memory(&floor.to_string(), 4), Ok(()));
+    assert_eq!(
+        check_memory(&(floor - 1).to_string(), 4),
+        Err(ConfigError::Memory)
+    );
+    for bad in ["max\n", "", "x", "-1", "0", "99999999999999999999999"] {
+        assert_eq!(check_memory(bad, 4), Err(ConfigError::Memory), "{bad}");
     }
 }
 

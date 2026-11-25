@@ -6,7 +6,7 @@
 use aseryx_enclave_harness::api::{ApiClient, ApiJobSource};
 use aseryx_enclave_harness::attest::SidecarAttestor;
 use aseryx_enclave_harness::chain::RpcChain;
-use aseryx_enclave_harness::config::{Config, engine_memory_bytes, memory_gb};
+use aseryx_enclave_harness::config::{Config, ConfigError, check_memory, engine_memory_bytes};
 use aseryx_enclave_harness::consent::Domain;
 use aseryx_enclave_harness::engine::{EngineModule, Limits};
 use aseryx_enclave_harness::job::{Services, run_job};
@@ -29,13 +29,13 @@ fn main() -> ExitCode {
         Ok(config) => config,
         Err(error) => return start_failure("settings", error),
     };
-    let memory = match std::fs::read_to_string(CGROUP_MEMORY_MAX)
-        .map_err(|_| aseryx_enclave_harness::config::ConfigError::Memory)
-        .and_then(|text| memory_gb(&text))
+    let memory = config.memory_gb;
+    if let Err(error) = std::fs::read_to_string(CGROUP_MEMORY_MAX)
+        .map_err(|_| ConfigError::Memory)
+        .and_then(|text| check_memory(&text, memory))
     {
-        Ok(memory) => memory,
-        Err(error) => return start_failure("memory", error),
-    };
+        return start_failure("memory", error);
+    }
     let engine_bytes = match std::fs::read(&config.engine_path) {
         Ok(bytes) => bytes,
         Err(error) => return start_failure("engine module", error),

@@ -27,13 +27,11 @@ fn without_settings_it_exits_2_and_names_the_missing_one() {
 fn a_malformed_setting_stops_it_without_echoing_the_value() {
     let (code, stderr) = run(&[
         ("ENCLAVE_RPC_URLS", "https://rpc.example"),
+        ("ENCLAVE_MEMORY_GB", "4"),
+        ("ENCLAVE_CHAIN_ID", "43113"),
         ("ENCLAVE_API_URL", "http://not-https.example/secretish"),
     ]);
     assert_eq!(code, Some(2));
-    assert!(
-        stderr.contains("ENCLAVE_CHAIN_ID is not set")
-            || stderr.contains("ENCLAVE_API_URL is not valid"),
-        "{stderr}"
-    );
+    assert!(stderr.contains("ENCLAVE_API_URL is not valid"), "{stderr}");
     assert!(!stderr.contains("secretish"), "{stderr}");
 }

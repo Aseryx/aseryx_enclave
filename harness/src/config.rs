@@ -18,9 +18,9 @@ const MAX_PARALLEL: usize = 64;
 const DEFAULT_DEADLINE_SECS: u64 = 6 * 3600;
 const MAX_RPC_URLS: usize = 8;
 const GIB: u64 = 1 << 30;
-/// How far under a whole number of gigabytes a container's memory limit may be and still count as that number, for the
-/// platform's own use of the memory it is given.
-const OVERHEAD_TOLERANCE: u64 = GIB / 5;
+/// The share of the configured memory the container's cgroup must show, in percent: the platform keeps some of what a
+/// container is sold, and a gigabyte may be decimal.
+const MEMORY_FLOOR_PERCENT: u64 = 85;
 /// WebAssembly linear memory cannot exceed 4 GiB.
 const WASM_MEMORY_LIMIT: u64 = 4 * GIB;
 
@@ -33,7 +33,7 @@ pub enum ConfigError {
     /// A variable is set to something that is not valid for it.
     #[error("{0} is not valid")]
     Invalid(&'static str),
-    /// The container's memory limit cannot be read as a whole number of gigabytes from 1 to 32.
+    /// The cgroup shows less memory than the container is configured to have, or cannot be read.
     #[error("the container's memory limit is not usable")]
     Memory,
 }
@@ -65,6 +65,8 @@ pub struct Config {
     pub appraisal_circuit: String,
     /// Where the ciphertext chunks are cached.
     pub cache_dir: PathBuf,
+    /// The container's memory in whole gigabytes, which the workload claims jobs with.
+    pub memory_gb: u32,
     /// How many chunks are fetched at once.
     pub parallel_fetches: usize,
     /// How long an engine run may take.
@@ -144,6 +146,10 @@ impl Config {
         if deadline == 0 {
             return Err(ConfigError::Invalid("ENCLAVE_ENGINE_DEADLINE_SECS"));
         }
+        let memory_gb: u32 = number("ENCLAVE_MEMORY_GB", &required("ENCLAVE_MEMORY_GB")?)?;
+        if !(1..=32).contains(&memory_gb) {
+            return Err(ConfigError::Invalid("ENCLAVE_MEMORY_GB"));
+        }
         let chain_id: u64 = number("ENCLAVE_CHAIN_ID", &required("ENCLAVE_CHAIN_ID")?)?;
         if chain_id == 0 {
             return Err(ConfigError::Invalid("ENCLAVE_CHAIN_ID"));
@@ -172,25 +178,24 @@ impl Config {
                 &optional("ENCLAVE_APPRAISAL_CIRCUIT", DEFAULT_CIRCUIT),
             )?,
             cache_dir: PathBuf::from(optional("ENCLAVE_CACHE_DIR", DEFAULT_CACHE)),
+            memory_gb,
             parallel_fetches,
             engine_deadline: Duration::from_secs(deadline),
         })
     }
 }
 
-/// The container's memory in whole gigabytes, from the text of the cgroup's `memory.max`: the limit rounded down after
-/// adding 0.2 GiB, so a 2 GB container that reports a little under 2 GiB is 2 GB and not 1.
+/// Checks the container's memory against its configured size, from the text of the cgroup's `memory.max`: the cgroup
+/// must show at least 85% of `configured_gb` gibibytes, so the size the workload claims jobs with is the size it has.
 ///
 /// # Errors
 ///
-/// [`ConfigError::Memory`] for `max` (no limit), text that is not a number, or a limit that is not between 1 and 32 GB.
-pub fn memory_gb(cgroup_memory_max: &str) -> Result<u32, ConfigError> {
+/// [`ConfigError::Memory`] for `max` (no limit), text that is not a number, or a limit under 85% of the configured size.
+pub fn check_memory(cgroup_memory_max: &str, configured_gb: u32) -> Result<(), ConfigError> {
     let bytes: u64 =
         number("memory.max", cgroup_memory_max.trim()).map_err(|_| ConfigError::Memory)?;
-    u32::try_from(bytes.saturating_add(OVERHEAD_TOLERANCE) / GIB)
-        .ok()
-        .filter(|gb| (1..=32).contains(gb))
-        .ok_or(ConfigError::Memory)
+    let floor = u64::from(configured_gb) * GIB / 100 * MEMORY_FLOOR_PERCENT;
+    (bytes >= floor).then_some(()).ok_or(ConfigError::Memory)
 }
 
 /// The most linear memory the engine may hold: three quarters of the container's, and never more than WebAssembly
