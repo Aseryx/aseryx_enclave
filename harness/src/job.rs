@@ -15,7 +15,8 @@ use crate::error_code::ErrorCode;
 use crate::label::{open_label, seal_label};
 use crate::lit::{KeyReleaser, open_attested_response};
 use crate::manifest::Manifest;
-use crate::pipeline::{run_passes, run_passes_many};
+use crate::metrics::{Recorder, Stage};
+use crate::pipeline::{run_passes_many_recorded, run_passes_recorded};
 use crate::result::{
     JobFacts, Proof, appraisal_result, classify_count, error_result, sign_result, threshold_answer,
     threshold_refusal,
@@ -169,6 +170,8 @@ pub struct Services<'a> {
     pub parallel_fetches: usize,
     /// The name of the appraisal circuit, for example `tabular_appraisal_r7`.
     pub appraisal_circuit: &'a str,
+    /// Collects what the job costs, for the metrics posted with its result.
+    pub metrics: &'a Recorder,
 }
 
 fn read<T>(outcome: Result<T, impl std::fmt::Debug>, code: ErrorCode) -> Result<T, ErrorCode> {
@@ -319,6 +322,7 @@ fn verify_consent(
 /// A token for the claimed job's runtime data that the API still accepts. The API refuses a token older than its limit,
 /// and a job can run longer than that, so each call after the first asks the sidecar for a new one.
 fn fresh_token(services: &Services<'_>, claimed: &Claimed) -> Result<String, ErrorCode> {
+    services.metrics.token_refreshed();
     read(
         services.attestor.attest(&claimed.runtime_data),
         ErrorCode::AttestationFailed,
@@ -328,6 +332,18 @@ fn fresh_token(services: &Services<'_>, claimed: &Claimed) -> Result<String, Err
 /// Has the decrypt action release a key to this workload and opens it: the dataset key (`field` is `sealed`) or a
 /// dispute's evidence key (`evidenceSealed`), sealed to the action by the owner or the buyer.
 fn release_key(
+    services: &Services<'_>,
+    claimed: &Claimed,
+    field: &str,
+    sealed: &Value,
+    digest: &Bytes32,
+) -> Result<[u8; 32], ErrorCode> {
+    services.metrics.time(Stage::Key, || {
+        release_key_untimed(services, claimed, field, sealed, digest)
+    })
+}
+
+fn release_key_untimed(
     services: &Services<'_>,
     claimed: &Claimed,
     field: &str,
@@ -349,10 +365,14 @@ fn release_key(
 }
 
 fn prove(services: &Services<'_>, circuit: &str, witness: &str) -> Result<Proof, ErrorCode> {
-    read(
-        services.prover.prove(circuit, witness),
-        ErrorCode::ProveFailed,
-    )
+    let proof = services.metrics.time(Stage::Prove, || {
+        read(
+            services.prover.prove(circuit, witness),
+            ErrorCode::ProveFailed,
+        )
+    })?;
+    services.metrics.proof_made();
+    Ok(proof)
 }
 
 fn appraise(
@@ -372,12 +392,13 @@ fn appraise(
         ),
         ErrorCode::AppraiseFailed,
     )?;
-    let engine_json = run_passes(
+    let engine_json = run_passes_recorded(
         run,
         manifest,
         key,
         services.cache,
         &verified.facts.plaintext_hash.0,
+        services.metrics,
     )
     .map_err(|e| e.code())?;
     let engine: Value = read(
@@ -433,12 +454,13 @@ fn threshold(
         .map(|spec| services.engine.threshold_count(&label, &spec.check_json))
         .collect::<Result<Vec<_>, _>>();
     let runs = read(runs, ErrorCode::AppraiseFailed)?;
-    let counts = run_passes_many(
+    let counts = run_passes_many_recorded(
         runs,
         &verified.manifest,
         key,
         services.cache,
         &verified.facts.plaintext_hash.0,
+        services.metrics,
     )
     .map_err(|e| e.code())?;
     let revision = read(
@@ -515,7 +537,9 @@ enum Outcome {
 fn execute(services: &Services<'_>, claimed: &Claimed) -> Result<Outcome, ErrorCode> {
     let runtime = STANDARD.encode(claimed.runtime_data.to_bytes());
     match read(
-        services.api.job(&claimed.token, &runtime),
+        services
+            .metrics
+            .time(Stage::Job, || services.api.job(&claimed.token, &runtime)),
         ErrorCode::FetchFailed,
     )? {
         Job::Data(inputs) => execute_data(services, claimed, &inputs)
@@ -530,7 +554,9 @@ fn execute_data(
     claimed: &Claimed,
     inputs: &JobInputs,
 ) -> Result<(Vec<Value>, JobKind), ErrorCode> {
-    let verified = verify_consent(services, claimed, inputs)?;
+    let verified = services
+        .metrics
+        .time(Stage::Checks, || verify_consent(services, claimed, inputs))?;
     let manifest = &verified.manifest;
     let max_chunk = chunk_limit(manifest.chunk_size);
     match services.cache.ensure_room(manifest.chunks.len(), max_chunk) {
@@ -569,21 +595,34 @@ fn execute_data(
     Ok((outcome?, inputs.kind))
 }
 
+/// The job's metrics as an object of their own, signed with the result key, added to a posted body. A failure to sign them
+/// leaves the body as it is: the result is judged without them.
+fn attach_metrics(services: &Services<'_>, claimed: &Claimed, body: &mut Value) {
+    let metrics = services.metrics.snapshot(services.cache);
+    if let Ok(signature) = sign_result(&metrics, &claimed.result_key) {
+        body["metrics"] = metrics;
+        body["metricsSignature"] = json!(signature);
+    }
+}
+
 fn post(services: &Services<'_>, claimed: &Claimed, outcome: &Outcome) -> Result<(), ErrorCode> {
     let (kind, results) = match outcome {
         Outcome::Data(results, kind) => (Some(*kind), results.as_slice()),
         Outcome::Dispute(result) => (None, std::slice::from_ref(result)),
     };
     let runtime = STANDARD.encode(claimed.runtime_data.to_bytes());
-    let signed = results
-        .iter()
-        .map(|r| {
-            sign_result(r, &claimed.result_key)
-                .map(|signature| json!({"result": r, "signature": signature}))
-        })
-        .collect::<Result<Vec<_>, _>>();
-    let signed = read(signed, ErrorCode::UploadFailed)?;
-    let token = fresh_token(services, claimed)?;
+    // Signing and the fresh token are the post stage the metrics report; the call that carries them is not in them.
+    let (signed, token) = services.metrics.time(Stage::Post, || {
+        let signed = results
+            .iter()
+            .map(|r| {
+                sign_result(r, &claimed.result_key)
+                    .map(|signature| json!({"result": r, "signature": signature}))
+            })
+            .collect::<Result<Vec<_>, _>>();
+        let signed = read(signed, ErrorCode::UploadFailed)?;
+        Ok((signed, fresh_token(services, claimed)?))
+    })?;
     let mut body = json!({"action": "result", "token": token, "runtimeData": runtime});
     match kind {
         Some(JobKind::Threshold) => {
@@ -600,6 +639,7 @@ fn post(services: &Services<'_>, claimed: &Claimed, outcome: &Outcome) -> Result
             body["signature"] = signed[0]["signature"].clone();
         }
     }
+    attach_metrics(services, claimed, &mut body);
     read(services.api.post_result(&body), ErrorCode::UploadFailed)
 }
 
@@ -610,7 +650,8 @@ fn post_error(services: &Services<'_>, claimed: &Claimed, code: ErrorCode) {
         fresh_token(services, claimed),
     ) {
         let runtime = STANDARD.encode(claimed.runtime_data.to_bytes());
-        let body = json!({"action": "result", "token": token, "runtimeData": runtime, "kind": "error", "result": result, "signature": signature});
+        let mut body = json!({"action": "result", "token": token, "runtimeData": runtime, "kind": "error", "result": result, "signature": signature});
+        attach_metrics(services, claimed, &mut body);
         let _ = services.api.post_result(&body);
     }
 }
@@ -622,7 +663,9 @@ fn post_error(services: &Services<'_>, claimed: &Claimed, code: ErrorCode) {
 /// The [`ErrorCode`] of the first step that failed. When the claim succeeded, that code was also posted as a signed error
 /// result, best effort.
 pub fn run_job(services: &Services<'_>) -> Result<(), ErrorCode> {
-    let claimed = claim_job(services.attestor, services.source, services.memory_gb)?;
+    let claimed = services.metrics.time(Stage::Claim, || {
+        claim_job(services.attestor, services.source, services.memory_gb)
+    })?;
     let outcome =
         execute(services, &claimed).and_then(|outcome| post(services, &claimed, &outcome));
     if let Err(code) = outcome {

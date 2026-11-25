@@ -19,6 +19,7 @@ pub mod keys;
 pub mod label;
 pub mod lit;
 pub mod manifest;
+pub mod metrics;
 pub mod pipeline;
 pub mod prove;
 pub mod qap;

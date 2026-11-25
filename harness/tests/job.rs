@@ -22,6 +22,7 @@ use aseryx_enclave_harness::keys::verify_result_signature;
 use aseryx_enclave_harness::label::{open_label, seal_label};
 use aseryx_enclave_harness::lit::{KeyReleaser, LitError, SealedResponse};
 use aseryx_enclave_harness::manifest::Manifest;
+use aseryx_enclave_harness::metrics::Recorder;
 use aseryx_enclave_harness::result::Proof;
 use aseryx_enclave_harness::runtime_data::RuntimeData;
 use aseryx_enclave_harness::store::{
@@ -467,6 +468,7 @@ fn run(
     } else {
         (&Token, &api, &lit, &prover)
     };
+    let metrics = Recorder::new();
     let services = Services {
         attestor,
         source: &source,
@@ -483,6 +485,7 @@ fn run(
         memory_gb: 4,
         parallel_fetches: 3,
         appraisal_circuit: "tabular_appraisal_r7",
+        metrics: &metrics,
     };
     let outcome = run_job(&services);
     std::fs::remove_dir_all(dir).expect("cleanup");
@@ -706,6 +709,154 @@ fn a_threshold_job_posts_a_signed_result_per_check() {
         1,
         "one key release serves every check"
     );
+}
+
+/// The metrics object of a posted body: exactly the agreed keys, every value an integer of at most 2^53, and a signature of
+/// its own under the result key.
+fn checked_metrics(body: &Value) -> Value {
+    let metrics = body["metrics"].clone();
+    let keys = |v: &Value| -> Vec<String> {
+        let mut keys: Vec<String> = v.as_object().expect("object").keys().cloned().collect();
+        keys.sort();
+        keys
+    };
+    assert_eq!(
+        keys(&metrics),
+        [
+            "diskPeakBytes",
+            "enginePeakBytes",
+            "fetch",
+            "passes",
+            "proofs",
+            "rssPeakBytes",
+            "stageMs",
+            "tokenRefreshes",
+            "v",
+            "wallMs"
+        ]
+    );
+    assert_eq!(
+        keys(&metrics["stageMs"]),
+        ["checks", "claim", "job", "key", "post", "prove", "wait"]
+    );
+    assert_eq!(
+        keys(&metrics["fetch"]),
+        ["busyMs", "bytes", "chunks", "wallMs"]
+    );
+    for pass in metrics["passes"].as_array().expect("passes") {
+        assert_eq!(
+            keys(pass),
+            ["chunks", "decompressMs", "decryptMs", "parseMs", "waitMs"]
+        );
+    }
+    fn integers(value: &Value) {
+        match value {
+            Value::Number(n) => assert!(n.as_u64().is_some_and(|n| n <= 1 << 53), "{n}"),
+            Value::Array(items) => items.iter().for_each(integers),
+            Value::Object(map) => map.values().for_each(integers),
+            other => panic!("not an integer: {other}"),
+        }
+    }
+    integers(&metrics);
+    assert_eq!(metrics["v"], 1);
+    let runtime: Value = serde_json::from_slice(
+        &STANDARD
+            .decode(body["runtimeData"].as_str().expect("runtime"))
+            .expect("b64"),
+    )
+    .expect("json");
+    let signature: [u8; 65] = hex::decode(
+        body["metricsSignature"]
+            .as_str()
+            .expect("metricsSignature")
+            .trim_start_matches("0x"),
+    )
+    .expect("hex")
+    .try_into()
+    .expect("65 bytes");
+    assert_eq!(
+        verify_result_signature(
+            runtime["resultPublicKey"].as_str().expect("key"),
+            &result_digest(&metrics).expect("digest"),
+            &signature,
+        ),
+        Ok(true),
+        "the metrics are signed with the result key"
+    );
+    metrics
+}
+
+/// An appraisal job posts what it cost beside its result, signed as an object of its own: the chunks and bytes fetched, a
+/// pass over every chunk, one proof, a token for the key release and one for the post, and the engine's memory.
+#[test]
+fn an_appraisal_job_posts_its_metrics_signed() {
+    let w = world();
+    assert_eq!(run(&w, Ok(appraisal_inputs(&w)), |_| {}), Ok(()));
+    let posted = w.posted.lock().expect("lock").clone();
+    let body = &posted[0];
+    let metrics = checked_metrics(body);
+    let manifest = Manifest::parse(&w.manifest_text).expect("manifest");
+    let chunk_bytes: u64 = w
+        .blobs
+        .iter()
+        .filter(|(cid, _)| cid.starts_with("QmChunk"))
+        .map(|(_, bytes)| bytes.len() as u64)
+        .sum();
+    assert_eq!(metrics["fetch"]["chunks"], manifest.chunks.len());
+    assert_eq!(metrics["fetch"]["bytes"], chunk_bytes);
+    assert_eq!(metrics["diskPeakBytes"], chunk_bytes);
+    let passes = metrics["passes"].as_array().expect("passes");
+    assert!(!passes.is_empty());
+    for pass in passes {
+        assert_eq!(pass["chunks"], manifest.chunks.len());
+    }
+    assert_eq!(metrics["proofs"], 1);
+    assert_eq!(
+        metrics["tokenRefreshes"], 2,
+        "one for the key release, one for the post"
+    );
+    assert!(metrics["enginePeakBytes"].as_u64().expect("peak") > 0);
+    // The result is the same value as without metrics: its signature still verifies on its own
+    assert!(posted_signature_verifies(body, &body["result"]));
+}
+
+/// A threshold job's metrics are one object for the whole job, and the results carry none of it.
+#[test]
+fn a_threshold_job_posts_one_metrics_object_for_all_its_checks() {
+    let (w, inputs) = threshold_world();
+    assert_eq!(run(&w, Ok(inputs), |_| {}), Ok(()));
+    let posted = w.posted.lock().expect("lock").clone();
+    let body = &posted[0];
+    let metrics = checked_metrics(body);
+    assert_eq!(
+        metrics["proofs"].as_u64().expect("proofs"),
+        w.proved.lock().expect("lock").len() as u64
+    );
+    for entry in body["results"].as_array().expect("results") {
+        assert!(entry["result"].get("metrics").is_none());
+    }
+}
+
+/// A failed job posts the metrics up to its failure: here the pass that found a chunk that does not authenticate.
+#[test]
+fn a_failed_job_posts_its_metrics_up_to_the_failure() {
+    let mut w = world();
+    w.blobs.get_mut("QmChunk1").expect("chunk")[3] ^= 1;
+    assert_eq!(
+        run(&w, Ok(appraisal_inputs(&w)), |_| {}),
+        Err(ErrorCode::HashMismatch)
+    );
+    let posted = w.posted.lock().expect("lock").clone();
+    let body = posted.last().expect("error body");
+    assert_eq!(body["kind"], "error");
+    let metrics = checked_metrics(body);
+    assert_eq!(metrics["proofs"], 0);
+    assert_eq!(
+        metrics["passes"].as_array().expect("passes").len(),
+        1,
+        "the failing pass is in the record"
+    );
+    assert_eq!(metrics["passes"][0]["chunks"], 2);
 }
 
 fn posted_error(w: &World) -> Option<String> {

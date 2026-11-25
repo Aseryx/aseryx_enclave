@@ -13,6 +13,7 @@ use aseryx_enclave_harness::consent::Domain;
 use aseryx_enclave_harness::engine::{EngineModule, Limits};
 use aseryx_enclave_harness::job::{Services, run_job};
 use aseryx_enclave_harness::lit::ApiRelay;
+use aseryx_enclave_harness::metrics::Recorder;
 use aseryx_enclave_harness::prove::{ArkProver, BucketSource, parse_pins};
 use aseryx_enclave_harness::store::{CipherCache, HttpFetcher, IpfsGateway};
 use std::process::ExitCode;
@@ -86,6 +87,7 @@ fn main() -> ExitCode {
     let artifacts = BucketSource::new(&config.artifacts_url);
     let prover = ArkProver::new(pins, &artifacts);
 
+    let metrics = Recorder::new();
     let services = Services {
         attestor: &attestor,
         source: &source,
@@ -102,6 +104,7 @@ fn main() -> ExitCode {
         memory_gb: memory,
         parallel_fetches: config.parallel_fetches,
         appraisal_circuit: &config.appraisal_circuit,
+        metrics: &metrics,
     };
     match run_job(&services) {
         Ok(()) => ExitCode::SUCCESS,
