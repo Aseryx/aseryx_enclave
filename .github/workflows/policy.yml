@@ -11,8 +11,7 @@ on:
     branches: ["spike/**", "main"]
     paths:
       - ".github/workflows/policy.yml"
-      - "scripts/check-policy.py"
-      - "scripts/anchor-policy.py"
+      - "scripts/*.py"
       - "release/**"
       - "Dockerfile"
       - "Cargo.toml"
@@ -50,8 +49,10 @@ jobs:
           az extension add --name confcom --version 2.4.1 --yes
           az version --output json
 
-      - name: The checker sees the hole in unanchored rules and accepts anchored ones
-        run: python3 scripts/check-policy.py --self-test
+      - name: The anchoring and the checker are tested
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_*.py'
+          python3 scripts/check-policy.py --self-test
 
       - name: Generate the production policy for each size, twice
         run: |

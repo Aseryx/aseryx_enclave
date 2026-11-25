@@ -19,9 +19,11 @@ import json
 import re
 import sys
 
+from policy_patterns import anchored, is_anchored
+
 WORKLOAD = "enclave-workload"
 MEMORY = "ENCLAVE_MEMORY_GB"
-MEMORY_PATTERN = "^ENCLAVE_MEMORY_GB=([1-9]|[12][0-9]|3[0-2])$"
+MEMORY_PATTERN = "^(?:ENCLAVE_MEMORY_GB=([1-9]|[12][0-9]|3[0-2]))$"
 # The environment variables the platform sets, as confcom writes them: the text each rule is built from
 PLATFORM_VARIABLES = [
     "HOSTNAME", "TMP", "TEMP", "FABRIC_X", "FabricPackageFileName", "HostedServiceName", "IDENTITY_API_VERSION",
@@ -39,11 +41,11 @@ def containers(rego: str) -> list:
 
 
 def matches(rule: dict, text: str) -> bool:
-    """One environment rule against one text, as the engine does it: exact for a string, a search for a pattern ($ is
-    the end of the text, as in RE2)."""
+    """One environment rule against one text, as the engine does it: exact for a string, a search for a pattern, with
+    RE2's meaning of . (not a newline) and $ (the end of the text)."""
     if rule["strategy"] == "string":
         return rule["pattern"] == text
-    pattern, flags = rule["pattern"], re.DOTALL
+    pattern, flags = rule["pattern"], 0
     if pattern.startswith("^(?i)"):
         pattern, flags = "^" + pattern[len("^(?i)"):], flags | re.IGNORECASE
     if pattern.endswith("$"):
@@ -55,19 +57,14 @@ def allowed(rules: list, text: str) -> bool:
     return any(matches(rule, text) for rule in rules)
 
 
-def anchored(pattern: str) -> bool:
-    """Anchored at both ends: ^ first (an inline flag may follow it) and $ last."""
-    return pattern.startswith("^") and pattern.endswith("$") and not pattern.startswith("(?i)")
-
-
 def check_rules(rules: list, expected: dict) -> list:
     """The problems an environment rule list has, given the template's ENCLAVE_* variables."""
     problems = []
     for rule in rules:
         if rule["strategy"] not in ("string", "re2"):
             problems.append(f"an environment rule with strategy {rule['strategy']}")
-        if rule["strategy"] == "re2" and not anchored(rule["pattern"]):
-            problems.append(f"a regular expression rule that is not anchored at both ends: {rule['pattern']}")
+        if rule["strategy"] == "re2" and not is_anchored(rule["pattern"]):
+            problems.append(f"a regular expression rule that is not wrapped and anchored as ^(?:...)$: {rule['pattern']}")
     for name, value in expected.items():
         if name == MEMORY:
             continue
@@ -111,17 +108,11 @@ def self_test() -> int:
     expected = {"ENCLAVE_API_URL": "https://a.example/f", MEMORY: "4"}
 
     def anchor(rules):
-        out = []
-        for r in rules:
-            body = r["pattern"]
-            flags = "(?i)" if body.startswith("(?i)") else ""
-            body = body[len(flags):]
-            out.append({**r, "pattern": "^" + flags + body + "$"} if r["strategy"] == "re2" else r)
-        return out
+        return [{**r, "pattern": anchored(r["pattern"])} if r["strategy"] == "re2" else r for r in rules]
 
     failures = []
     unanchored = check_rules(platform + exact + memory, expected)
-    if not any("not anchored" in p for p in unanchored) or not any("allowed with another text" in p for p in unanchored):
+    if not any("not wrapped" in p for p in unanchored) or not any("allowed with another text" in p for p in unanchored):
         failures.append("the checker does not see the hole in unanchored rules")
     good = check_rules(anchor(platform + memory) + exact, expected)
     if good:
@@ -150,8 +141,8 @@ def main(policy_path: str, template_path: str, engine_path: str) -> int:
 
     for container in all_containers:
         for rule in container["env_rules"]:
-            if rule["strategy"] == "re2" and not anchored(rule["pattern"]):
-                problems.append(f"{container['name']}: a regular expression rule that is not anchored: {rule['pattern']}")
+            if rule["strategy"] == "re2" and not is_anchored(rule["pattern"]):
+                problems.append(f"{container['name']}: a regular expression rule that is not wrapped and anchored: {rule['pattern']}")
     if workload["exec_processes"]:
         problems.append("the workload allows exec")
     if workload["allow_stdio_access"]:

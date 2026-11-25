@@ -6,7 +6,7 @@ export ENCLAVE_ENGINE_WASM ?= $(abspath engine/appraisal_core_wasm_bg.wasm)
 export ENCLAVE_CIRCUITS ?= $(abspath .cache/circuits)
 export ENCLAVE_TABULAR_FIXTURES ?= $(abspath ../aseryx_zk_server/tests/fixtures/tabular_v12)
 
-.PHONY: help fmt fmt-check clippy circuits test doc check
+.PHONY: help fmt fmt-check clippy circuits test doc policy-tests check
 
 help: ## List the targets
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | sed 's/:.*## /\t/'
@@ -29,4 +29,8 @@ test: circuits ## Run the tests
 doc: ## Build the docs, warnings as errors
 	RUSTDOCFLAGS="-D warnings" $(CARGO) doc --no-deps --workspace --locked
 
-check: fmt-check clippy test doc ## Run every gate
+policy-tests: ## Test the policy anchoring and the policy checker
+	python3 -m unittest discover -s scripts -p 'test_*.py'
+	python3 scripts/check-policy.py --self-test
+
+check: fmt-check clippy test doc policy-tests ## Run every gate
