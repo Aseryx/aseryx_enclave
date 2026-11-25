@@ -25,7 +25,8 @@ use aseryx_enclave_harness::manifest::Manifest;
 use aseryx_enclave_harness::result::Proof;
 use aseryx_enclave_harness::runtime_data::RuntimeData;
 use aseryx_enclave_harness::store::{
-    CipherCache, Fetcher, MAX_MANIFEST_BYTES, StoreError, UrlFetcher, chunk_limit,
+    CipherCache, DISK_RESERVE_BYTES, Fetcher, MAX_MANIFEST_BYTES, StoreError, UrlFetcher,
+    chunk_limit,
 };
 use base64::Engine;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
@@ -401,10 +402,15 @@ fn run(
         post_fails: false,
         record: world.record.clone(),
         token_max_age: None,
+        disk_free: None,
     };
     tweak(&mut t);
     let dir = unique_dir("job");
-    let cache = CipherCache::new(&dir).expect("cache");
+    let cache = match t.disk_free {
+        Some(free) => CipherCache::with_free_space(&dir, move |_| Ok(free)),
+        None => CipherCache::new(&dir),
+    }
+    .expect("cache");
     let engine = engine();
     let chain = Fixed(t.record);
     let fetcher = Blobs(world);
@@ -492,6 +498,8 @@ struct Tweaks {
     /// When set, tokens carry the time they were minted and the API and relay refuse one older than this many seconds,
     /// fetching the job and proving take 700 seconds each.
     token_max_age: Option<u64>,
+    /// When set, the disk holding the chunk cache has this many free bytes.
+    disk_free: Option<u64>,
 }
 
 fn posted_signature_verifies(body: &Value, result: &Value) -> bool {
@@ -821,6 +829,31 @@ fn bad_chunks_and_a_silent_api_stop_the_job() {
     assert_eq!(posted_error(&w).as_deref(), Some("fetch_failed"));
     let w = world();
     assert!(Manifest::parse(&w.manifest_text).is_ok());
+}
+
+/// A disk too small for the dataset's ciphertext and the workload's reserve ends the job with `too_large` before any chunk
+/// is fetched (the chunks are gone from the gateway here, so a fetch would be `fetch_failed`); a disk with exactly enough
+/// room runs the job.
+#[test]
+fn a_disk_without_room_for_the_dataset_ends_the_job_before_any_fetch() {
+    let manifest = Manifest::parse(&world().manifest_text).expect("manifest");
+    let needed =
+        manifest.chunks.len() as u64 * chunk_limit(manifest.chunk_size) + DISK_RESERVE_BYTES;
+
+    let mut w = world();
+    w.blobs.retain(|cid, _| !cid.starts_with("QmChunk"));
+    assert_eq!(
+        run(&w, Ok(appraisal_inputs(&w)), |t| t.disk_free =
+            Some(needed - 1)),
+        Err(ErrorCode::TooLarge)
+    );
+    assert_eq!(posted_error(&w).as_deref(), Some("too_large"));
+
+    let w = world();
+    assert_eq!(
+        run(&w, Ok(appraisal_inputs(&w)), |t| t.disk_free = Some(needed)),
+        Ok(())
+    );
 }
 
 /// A refused claim ends the job before anything else is asked of anyone, and nothing is posted.
