@@ -75,7 +75,7 @@ jobs:
               python3 scripts/anchor-policy.py "$d/confcom.rego" "$d/policy.rego"
               base64 -w0 "$d/policy.rego" > "$d/policy.deploy.b64"
               sha256sum "$d/policy.rego" | cut -d' ' -f1 | tee "$d/policy.sha256"
-              python3 scripts/check-policy.py "$d/policy.rego" release/template.json engine/appraisal_core_wasm_bg.wasm.sha256
+              python3 scripts/check-policy.py "$d/policy.rego" release/template.json engine/aseryx_engine_wasm_bg.wasm.sha256
             done
           done
 

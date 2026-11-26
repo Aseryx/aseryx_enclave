@@ -3,7 +3,7 @@ name: check
 # The harness gate on every push and pull request: formatting, clippy with warnings as errors, every test, the docs with
 # warnings as errors, and the policy anchoring tests (make fmt-check clippy test doc policy-tests). Two parts of make check
 # are not here: the secret scan, which is its own workflow (secrets.yml), and nothing else is skipped.
-#   - The tests need the engine module (engine/, in this repository), the appraisal-core goldens
+#   - The tests need the engine module (engine/, in this repository), the aseryx-engine goldens
 #     (harness/tests/tabular, vendored with their hashes) and the circuit artifacts. The artifacts are downloaded
 #     by `make circuits` from the public artifact bucket on every run (about 9 MB) and refused unless each file's SHA-256
 #     equals its pin in harness/circuit-pins.json.

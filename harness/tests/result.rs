@@ -16,7 +16,7 @@ use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::time::Duration;
 
-const PINNED: &str = "0xc4565b13e634c8c900a7d241ed141974e93eb6fb895e0b016a63cce36d35968c";
+const PINNED: &str = "0x9bec14d49e3a56512cc0e54f7bd0d060841376ab94c301b7df7bfe3bba6a466d";
 const RULES_HASH: &str =
     "196377069280065456317493222910811677995390882464815658788936813714641954860";
 
@@ -51,7 +51,7 @@ fn facts() -> JobFacts {
         dataset: "0123456789abcdef0123456789abcdef".to_owned(),
         manifest_cid: "QmManifest".to_owned(),
         plaintext_hash: Bytes32(Sha256::digest(golden()).into()),
-        engine_version: "0.15.1".to_owned(),
+        engine_version: "0.16.1".to_owned(),
         engine_module_sha256: Bytes32::parse(PINNED).expect("pin"),
     }
 }
@@ -412,7 +412,7 @@ fn dispute_facts() -> DisputeFacts {
         dataset: "0123456789abcdef0123456789abcdef".to_owned(),
         buyer: "0x1234567890abcdef1234567890abcdef12345678".to_owned(),
         evidence_hash: Bytes32([0xee; 32]),
-        engine_version: "0.15.1".to_owned(),
+        engine_version: "0.16.1".to_owned(),
         engine_module_sha256: Bytes32::parse(PINNED).expect("pin"),
     }
 }

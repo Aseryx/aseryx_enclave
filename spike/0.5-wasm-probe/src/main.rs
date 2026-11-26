@@ -1,4 +1,4 @@
-//! Spike 0.5 probe: runs the vendored appraisal-core WebAssembly module (the file browsers run) under wasmtime
+//! Spike 0.5 probe: runs the vendored aseryx-engine WebAssembly module (the file browsers run) under wasmtime
 //! with no JavaScript, supplying the four imports wasm-bindgen declares. Prints the appraisal JSON.
 //!
 //! Usage: wasm-probe <module.wasm> <data file> <format> <file name> <salt hex or ->
@@ -18,7 +18,7 @@ impl<T> Context<T> for Option<T> {
     }
 }
 
-const GLUE: &str = "./appraisal_core_wasm_bg.js";
+const GLUE: &str = "./aseryx_engine_wasm_bg.js";
 const FEED_SLICE: usize = 1 << 20;
 
 #[derive(Default)]
