@@ -25,7 +25,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 const LIMIT: u64 = u64::MAX;
-const PINNED: &str = "0xc4565b13e634c8c900a7d241ed141974e93eb6fb895e0b016a63cce36d35968c";
+const PINNED: &str = "0x9bec14d49e3a56512cc0e54f7bd0d060841376ab94c301b7df7bfe3bba6a466d";
 const SALT: &str = "abababababababababababababababababababababababababababababababab";
 const MANIFEST_ID: &str = "QmTestManifest";
 const KEY: [u8; 32] = [7; 32];

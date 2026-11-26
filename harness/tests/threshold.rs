@@ -22,7 +22,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::time::Duration;
 
-const PINNED: &str = "0xc4565b13e634c8c900a7d241ed141974e93eb6fb895e0b016a63cce36d35968c";
+const PINNED: &str = "0x9bec14d49e3a56512cc0e54f7bd0d060841376ab94c301b7df7bfe3bba6a466d";
 const KEY: [u8; 32] = [7; 32];
 
 fn env_path(name: &str) -> PathBuf {

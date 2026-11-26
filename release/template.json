@@ -66,7 +66,7 @@
                 },
                 {
                   "name": "ENCLAVE_ENGINE_SHA256",
-                  "value": "0xc4565b13e634c8c900a7d241ed141974e93eb6fb895e0b016a63cce36d35968c"
+                  "value": "0x9bec14d49e3a56512cc0e54f7bd0d060841376ab94c301b7df7bfe3bba6a466d"
                 },
                 {
                   "name": "ENCLAVE_MEMORY_GB",

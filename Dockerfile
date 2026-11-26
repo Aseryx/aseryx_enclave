@@ -5,7 +5,7 @@ FROM rust:1.97.1-slim-bookworm@sha256:2775a09d208ff0d7c1f50490c45b62db929e87ba1d
 
 WORKDIR /src
 COPY engine engine
-RUN cd engine && sha256sum --check --strict appraisal_core_wasm_bg.wasm.sha256
+RUN cd engine && sha256sum --check --strict aseryx_engine_wasm_bg.wasm.sha256
 
 COPY Cargo.toml Cargo.lock ./
 COPY harness harness
@@ -17,7 +17,7 @@ RUN cargo build --release --locked -p aseryx-enclave-harness --bin aseryx-enclav
 
 RUN mkdir -p /rootfs/var/lib/enclave/cache /rootfs/opt/enclave \
  && cp target/release/aseryx-enclave /rootfs/aseryx-enclave \
- && cp engine/appraisal_core_wasm_bg.wasm /rootfs/opt/enclave/engine.wasm
+ && cp engine/aseryx_engine_wasm_bg.wasm /rootfs/opt/enclave/engine.wasm
 
 FROM gcr.io/distroless/cc-debian12:nonroot@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f
 

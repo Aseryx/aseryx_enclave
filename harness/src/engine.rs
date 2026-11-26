@@ -1,4 +1,4 @@
-//! The appraisal engine: the `appraisal_core_wasm_bg.wasm` module that browsers run, hosted in wasmtime.
+//! The appraisal engine: the `aseryx_engine_wasm_bg.wasm` module that browsers run, hosted in wasmtime.
 //!
 //! The module is pinned by its SHA-256 and may import only the four functions wasm-bindgen declares, so it has no way
 //! to reach a clock, a file or a network. The harness hands it decrypted bytes and reads back JSON. Every run has its own
@@ -15,7 +15,7 @@ use wasmtime::{
     Table, Trap, Val,
 };
 
-const GLUE: &str = "./appraisal_core_wasm_bg.js";
+const GLUE: &str = "./aseryx_engine_wasm_bg.js";
 const IMPORTS: [&str; 4] = [
     "__wbg_Error_30c8987f7c2ed4e2",
     "__wbg___wbindgen_throw_41e9ee4f547fc59a",

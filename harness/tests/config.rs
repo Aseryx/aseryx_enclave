@@ -31,7 +31,7 @@ const REQUIRED: [(&str, &str); 8] = [
     ),
     (
         "ENCLAVE_ENGINE_SHA256",
-        "0xc4565b13e634c8c900a7d241ed141974e93eb6fb895e0b016a63cce36d35968c",
+        "0x9bec14d49e3a56512cc0e54f7bd0d060841376ab94c301b7df7bfe3bba6a466d",
     ),
 ];
 
@@ -166,7 +166,7 @@ fn malformed_values_are_refused() {
         ("ENCLAVE_ARTIFACTS_URL", "gateway.example"),
         (
             "ENCLAVE_ENGINE_SHA256",
-            "c4565b13e634c8c900a7d241ed141974e93eb6fb895e0b016a63cce36d35968c",
+            "9bec14d49e3a56512cc0e54f7bd0d060841376ab94c301b7df7bfe3bba6a466d",
         ),
         ("ENCLAVE_ENGINE_SHA256", "0x12"),
         ("ENCLAVE_SIDECAR_URL", "https://localhost:8080"),

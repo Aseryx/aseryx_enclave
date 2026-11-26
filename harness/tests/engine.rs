@@ -1,6 +1,6 @@
-//! The engine module runs under wasmtime and reproduces appraisal-core's goldens.
+//! The engine module runs under wasmtime and reproduces aseryx-engine's goldens.
 //!
-//! The tests read the module browsers run and the appraisal-core fixtures from the paths in `ENCLAVE_ENGINE_WASM` and
+//! The tests read the module browsers run and the aseryx-engine fixtures from the paths in `ENCLAVE_ENGINE_WASM` and
 //! `ENCLAVE_TABULAR_FIXTURES` (`make test` sets both) and fail when either is missing.
 
 use aseryx_enclave_harness::consent::Bytes32;
@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::time::Duration;
 
-const PINNED: &str = "0xc4565b13e634c8c900a7d241ed141974e93eb6fb895e0b016a63cce36d35968c";
+const PINNED: &str = "0x9bec14d49e3a56512cc0e54f7bd0d060841376ab94c301b7df7bfe3bba6a466d";
 const RULES_HASH: &str =
     "196377069280065456317493222910811677995390882464815658788936813714641954860";
 
@@ -92,7 +92,7 @@ fn the_module_reports_the_pinned_rules() {
             info.rules_version.as_str(),
             info.rules_hash.as_str()
         ),
-        ("0.15.1", "tabular", "tabular_v12", "v12.0", RULES_HASH)
+        ("0.16.1", "tabular", "tabular_v12", "v12.0", RULES_HASH)
     );
 }
 
