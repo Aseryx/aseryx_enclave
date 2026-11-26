@@ -25,8 +25,8 @@
               "image": "mcr.microsoft.com/aci/skr:2.12",
               "resources": {
                 "requests": {
-                  "cpu": 1,
-                  "memoryInGB": 1
+                  "cpu": 0.5,
+                  "memoryInGB": 0.5
                 }
               },
               "ports": [
