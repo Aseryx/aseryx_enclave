@@ -1,8 +1,10 @@
 //! The signed results have exactly the agreed fields, are canonical, and verify under the result key. The engine tests'
 //! environment variables apply (`make test` sets them).
 
+mod common;
+
 use aseryx_enclave_harness::consent::{Bytes32, Uint256, result_digest};
-use aseryx_enclave_harness::engine::{EngineModule, Limits};
+use aseryx_enclave_harness::engine::NativeEngine;
 use aseryx_enclave_harness::error_code::ErrorCode;
 use aseryx_enclave_harness::keys::{ResultKey, verify_result_signature};
 use aseryx_enclave_harness::label::seal_label_with_iv;
@@ -14,9 +16,7 @@ use aseryx_enclave_harness::result::{
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
-use std::time::Duration;
 
-const PINNED: &str = "0x9bec14d49e3a56512cc0e54f7bd0d060841376ab94c301b7df7bfe3bba6a466d";
 const RULES_HASH: &str =
     "196377069280065456317493222910811677995390882464815658788936813714641954860";
 
@@ -27,13 +27,8 @@ fn env_path(name: &str) -> PathBuf {
     )
 }
 
-fn module() -> EngineModule {
-    let bytes = std::fs::read(env_path("ENCLAVE_ENGINE_WASM")).expect("engine module");
-    let limits = Limits {
-        deadline: Duration::from_secs(120),
-        max_memory_bytes: 2 << 30,
-    };
-    EngineModule::load(&bytes, Bytes32::parse(PINNED).expect("pin"), limits).expect("loads")
+fn module() -> NativeEngine {
+    common::native_engine()
 }
 
 fn golden() -> Vec<u8> {
@@ -52,7 +47,7 @@ fn facts() -> JobFacts {
         manifest_cid: "QmManifest".to_owned(),
         plaintext_hash: Bytes32(Sha256::digest(golden()).into()),
         engine_version: "0.16.1".to_owned(),
-        engine_module_sha256: Bytes32::parse(PINNED).expect("pin"),
+        engine_library_sha256: NativeEngine::library_sha256(),
     }
 }
 
@@ -118,7 +113,8 @@ fn an_appraisal_result_has_exactly_the_agreed_fields() {
             "circuitName",
             "dataset",
             "encryptedLabel",
-            "engineModuleSha256",
+            "engine",
+            "engineLibrarySha256",
             "engineVersion",
             "family",
             "jobId",
@@ -138,14 +134,15 @@ fn an_appraisal_result_has_exactly_the_agreed_fields() {
     );
     assert_eq!(
         (result["v"].as_u64(), result["kind"].as_str()),
-        (Some(1), Some("appraisal"))
+        (Some(2), Some("appraisal"))
     );
     assert_eq!(result["labelHash"], label_hash.as_str());
     assert_eq!(result["encryptedLabel"], envelope.as_str());
     assert_eq!(
-        result["engineModuleSha256"],
-        hex::encode(Bytes32::parse(PINNED).expect("pin").0)
+        result["engineLibrarySha256"],
+        hex::encode(NativeEngine::library_sha256().0)
     );
+    assert_eq!(result["engine"], "native");
     let counts: Value =
         serde_json::from_str(result["circuitInputs"].as_str().expect("text")).expect("counts");
     assert_eq!(
@@ -271,7 +268,8 @@ fn threshold_results_have_exactly_the_agreed_fields() {
             "checkHash",
             "circuitName",
             "dataset",
-            "engineModuleSha256",
+            "engine",
+            "engineLibrarySha256",
             "engineVersion",
             "family",
             "jobId",
@@ -313,7 +311,8 @@ fn threshold_results_have_exactly_the_agreed_fields() {
             [
                 "checkHash",
                 "dataset",
-                "engineModuleSha256",
+                "engine",
+                "engineLibrarySha256",
                 "engineVersion",
                 "family",
                 "jobId",
@@ -413,7 +412,7 @@ fn dispute_facts() -> DisputeFacts {
         buyer: "0x1234567890abcdef1234567890abcdef12345678".to_owned(),
         evidence_hash: Bytes32([0xee; 32]),
         engine_version: "0.16.1".to_owned(),
-        engine_module_sha256: Bytes32::parse(PINNED).expect("pin"),
+        engine_library_sha256: NativeEngine::library_sha256(),
     }
 }
 
@@ -431,7 +430,8 @@ fn a_label_dispute_result_has_exactly_the_agreed_fields() {
             "buyer",
             "disputeId",
             "disputeType",
-            "engineModuleSha256",
+            "engine",
+            "engineLibrarySha256",
             "engineVersion",
             "error",
             "evidenceHash",
@@ -453,7 +453,7 @@ fn a_label_dispute_result_has_exactly_the_agreed_fields() {
         .into_iter()
         .collect::<Vec<_>>()
     );
-    assert_eq!(result["v"], 1);
+    assert_eq!(result["v"], 2);
     assert_eq!(result["kind"], "dispute");
     assert_eq!(result["disputeType"], "label_mismatch");
     assert_eq!(result["disputeId"], "41");
@@ -500,7 +500,8 @@ fn a_threshold_dispute_result_has_exactly_the_agreed_fields() {
         "dataset",
         "disputeId",
         "disputeType",
-        "engineModuleSha256",
+        "engine",
+        "engineLibrarySha256",
         "engineVersion",
         "error",
         "evidenceHash",

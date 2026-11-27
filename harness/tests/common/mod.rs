@@ -4,9 +4,11 @@
     reason = "each test binary uses a different part of these helpers"
 )]
 
+use aseryx_enclave_harness::engine::{Limits, NativeEngine};
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::thread::JoinHandle;
+use std::time::Duration;
 
 /// Serves one request with `status` and `body`, then returns the request it saw.
 pub fn serve_once(status: &str, body: &str) -> (String, JoinHandle<String>) {
@@ -106,4 +108,18 @@ pub fn unique_dir(name: &str) -> std::path::PathBuf {
     ));
     std::fs::create_dir_all(&dir).expect("temp dir");
     dir
+}
+
+/// The limits the tests run the engine under.
+pub fn engine_limits() -> Limits {
+    Limits {
+        deadline: Duration::from_secs(120),
+        hard_grace: Duration::from_secs(60),
+        pass_two_budget_bytes: 256 << 20,
+    }
+}
+
+/// The engine linked into this build, started with the pin it was built with.
+pub fn native_engine() -> NativeEngine {
+    NativeEngine::new(NativeEngine::library_sha256(), engine_limits()).expect("the engine starts")
 }

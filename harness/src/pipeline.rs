@@ -146,7 +146,7 @@ pub fn run_passes_many(
     run_passes_many_recorded(runs, manifest, key, cache, expected, &Recorder::new())
 }
 
-/// As [`run_passes_many`], and records each pass's timing and the engines' memory in `recorder` as the pass ends, so a
+/// As [`run_passes_many`], and records each pass's timing in `recorder` as the pass ends, so a
 /// pass that fails is in the record up to its failure.
 ///
 /// # Errors
@@ -164,7 +164,6 @@ pub fn run_passes_many_recorded(
         let mut timing = PassTiming::default();
         let fed = feed_pass(&mut runs, manifest, key, cache, &mut timing);
         recorder.record_pass(timing);
-        recorder.record_engine_peak(runs.iter().map(Run::peak_memory_bytes).sum());
         if fed? != *expected {
             return Err(PipelineError::HashMismatch);
         }

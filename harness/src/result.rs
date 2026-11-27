@@ -9,7 +9,9 @@ use crate::error_code::ErrorCode;
 use crate::keys::ResultKey;
 use serde_json::{Map, Value, json};
 
-const RESULT_VERSION: u64 = 1;
+const RESULT_VERSION: u64 = 2;
+/// How the engine ran: linked into the workload as a native library.
+const ENGINE_KIND: &str = "native";
 const COUNT_NAMES: [&str; 12] = [
     "total_records",
     "structure_defects",
@@ -63,10 +65,10 @@ pub struct JobFacts {
     pub manifest_cid: String,
     /// The full SHA-256 of the plaintext, equal to the registry's.
     pub plaintext_hash: Bytes32,
-    /// The engine module's version.
+    /// The engine's version.
     pub engine_version: String,
-    /// The SHA-256 of the engine module that ran.
-    pub engine_module_sha256: Bytes32,
+    /// The SHA-256 of the engine library that ran.
+    pub engine_library_sha256: Bytes32,
 }
 
 /// A Groth16 proof as snarkjs writes it, with its public signals.
@@ -100,10 +102,11 @@ fn base(facts: &JobFacts, kind: &str) -> Map<String, Value> {
 }
 
 fn with_engine(mut object: Map<String, Value>, facts: &JobFacts) -> Map<String, Value> {
+    object.insert("engine".into(), json!(ENGINE_KIND));
     object.insert("engineVersion".into(), json!(facts.engine_version));
     object.insert(
-        "engineModuleSha256".into(),
-        json!(hex::encode(facts.engine_module_sha256.0)),
+        "engineLibrarySha256".into(),
+        json!(hex::encode(facts.engine_library_sha256.0)),
     );
     object
 }
@@ -313,10 +316,10 @@ pub struct DisputeFacts {
     pub buyer: String,
     /// The SHA-256 of the evidence plaintext, which the consent names and the workload checked.
     pub evidence_hash: Bytes32,
-    /// The engine module's version.
+    /// The engine's version.
     pub engine_version: String,
-    /// The SHA-256 of the engine module that ran.
-    pub engine_module_sha256: Bytes32,
+    /// The SHA-256 of the engine library that ran.
+    pub engine_library_sha256: Bytes32,
 }
 
 fn dispute_base(facts: &DisputeFacts, dispute_type: &str) -> Map<String, Value> {
@@ -339,10 +342,11 @@ fn dispute_base(facts: &DisputeFacts, dispute_type: &str) -> Map<String, Value> 
         "evidenceHash".into(),
         json!(facts.evidence_hash.to_string()),
     );
+    object.insert("engine".into(), json!(ENGINE_KIND));
     object.insert("engineVersion".into(), json!(facts.engine_version));
     object.insert(
-        "engineModuleSha256".into(),
-        json!(hex::encode(facts.engine_module_sha256.0)),
+        "engineLibrarySha256".into(),
+        json!(hex::encode(facts.engine_library_sha256.0)),
     );
     object
 }

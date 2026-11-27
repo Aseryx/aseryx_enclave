@@ -5,8 +5,7 @@ mod common;
 
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
-use aseryx_enclave_harness::consent::Bytes32;
-use aseryx_enclave_harness::engine::{EngineError, EngineModule, Limits, Run};
+use aseryx_enclave_harness::engine::{EngineError, NativeEngine, Run};
 use aseryx_enclave_harness::manifest::Manifest;
 use aseryx_enclave_harness::pipeline::run_passes_many;
 use aseryx_enclave_harness::store::{CipherCache, Fetcher, StoreError};
@@ -20,9 +19,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
-use std::time::Duration;
 
-const PINNED: &str = "0x9bec14d49e3a56512cc0e54f7bd0d060841376ab94c301b7df7bfe3bba6a466d";
 const KEY: [u8; 32] = [7; 32];
 
 fn env_path(name: &str) -> PathBuf {
@@ -32,13 +29,8 @@ fn env_path(name: &str) -> PathBuf {
     )
 }
 
-fn module() -> EngineModule {
-    let bytes = std::fs::read(env_path("ENCLAVE_ENGINE_WASM")).expect("engine module");
-    let limits = Limits {
-        deadline: Duration::from_secs(120),
-        max_memory_bytes: 2 << 30,
-    };
-    EngineModule::load(&bytes, Bytes32::parse(PINNED).expect("pin"), limits).expect("loads")
+fn module() -> NativeEngine {
+    common::native_engine()
 }
 
 fn golden() -> Vec<u8> {
@@ -91,7 +83,7 @@ fn feed_all(mut run: Run, plain: &[u8]) -> Result<String, EngineError> {
     }
 }
 
-fn label_of(module: &EngineModule, plain: &[u8]) -> (String, Value) {
+fn label_of(module: &NativeEngine, plain: &[u8]) -> (String, Value) {
     let appraisal = feed_all(
         module
             .appraisal(

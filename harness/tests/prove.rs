@@ -1,14 +1,15 @@
 //! Proofs over the production circuits: the witness equals `ark-circom`'s, every proof verifies against the circuit's
 //! `verification_key.json` read independently of the proving key, and the pins hold. The circuit artifacts come from
-//! `ENCLAVE_CIRCUITS` and the engine from `ENCLAVE_ENGINE_WASM` (`make test` sets both and fetches the circuits).
+//! `ENCLAVE_CIRCUITS` (`make test` sets it and fetches the circuits).
+
+mod common;
 
 use ark_bn254::{Bn254, Fq, Fq2, Fr, G1Affine, G2Affine};
 use ark_ff::PrimeField;
 use ark_groth16::{Groth16, Proof as ArkProof, VerifyingKey};
 use ark_snark::SNARK;
 use aseryx_enclave_harness::circom::Circuit;
-use aseryx_enclave_harness::consent::Bytes32;
-use aseryx_enclave_harness::engine::{EngineModule, Limits};
+use aseryx_enclave_harness::engine::NativeEngine;
 use aseryx_enclave_harness::job::Prover;
 use aseryx_enclave_harness::prove::{
     ArkProver, ArtifactFile, ArtifactSource, ProveFailure, parse_pins,
@@ -18,9 +19,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
-use std::time::Duration;
 
-const PINNED: &str = "0x9bec14d49e3a56512cc0e54f7bd0d060841376ab94c301b7df7bfe3bba6a466d";
 const PINS: &str = include_str!("../circuit-pins.json");
 const APPRAISAL: &str = "tabular_appraisal_r7";
 const THRESHOLD: &str = "threshold_r2_c1";
@@ -43,13 +42,8 @@ fn source() -> Dir {
     Dir(env_path("ENCLAVE_CIRCUITS"))
 }
 
-fn engine() -> EngineModule {
-    let bytes = std::fs::read(env_path("ENCLAVE_ENGINE_WASM")).expect("engine module");
-    let limits = Limits {
-        deadline: Duration::from_secs(120),
-        max_memory_bytes: 2 << 30,
-    };
-    EngineModule::load(&bytes, Bytes32::parse(PINNED).expect("pin"), limits).expect("loads")
+fn engine() -> NativeEngine {
+    common::native_engine()
 }
 
 fn golden() -> Vec<u8> {

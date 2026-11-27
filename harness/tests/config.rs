@@ -1,7 +1,8 @@
 //! The settings: what is required, the defaults, and what is refused.
 
 use aseryx_enclave_harness::config::{
-    Config, ConfigError, cgroup_limit_text, check_memory, engine_memory_bytes, mem_available_bytes,
+    Config, ConfigError, cgroup_limit_text, check_memory, mem_available_bytes,
+    pass_two_budget_bytes,
 };
 use std::collections::HashMap;
 use std::time::Duration;
@@ -53,10 +54,6 @@ fn the_required_settings_alone_give_the_defaults() {
     let config = read(&[], &[]).expect("config");
     assert_eq!(config.sidecar_url, "http://localhost:8080");
     assert_eq!(config.maa_endpoint, "sharedeus.eus.attest.azure.net");
-    assert_eq!(
-        config.engine_path.to_str(),
-        Some("/opt/enclave/engine.wasm")
-    );
     assert_eq!(config.appraisal_circuit, "tabular_appraisal_r7");
     assert_eq!(config.cache_dir.to_str(), Some("/var/lib/enclave/cache"));
     assert_eq!(config.parallel_fetches, 8);
@@ -94,7 +91,6 @@ fn given_settings_replace_the_defaults() {
         &[
             ("ENCLAVE_SIDECAR_URL", "http://127.0.0.1:9000/x"),
             ("ENCLAVE_MAA_ENDPOINT", "sharedweu.weu.attest.azure.net"),
-            ("ENCLAVE_ENGINE_PATH", "/e.wasm"),
             ("ENCLAVE_APPRAISAL_CIRCUIT", "tabular_appraisal_r8"),
             ("ENCLAVE_CACHE_DIR", "/c"),
             ("ENCLAVE_PARALLEL_FETCHES", "64"),
@@ -105,7 +101,6 @@ fn given_settings_replace_the_defaults() {
     .expect("config");
     assert_eq!(config.sidecar_url, "http://127.0.0.1:9000/x");
     assert_eq!(config.maa_endpoint, "sharedweu.weu.attest.azure.net");
-    assert_eq!(config.engine_path.to_str(), Some("/e.wasm"));
     assert_eq!(config.appraisal_circuit, "tabular_appraisal_r8");
     assert_eq!(config.cache_dir.to_str(), Some("/c"));
     assert_eq!(config.parallel_fetches, 64);
@@ -296,31 +291,25 @@ fn memory_available_is_read_from_meminfo() {
     }
 }
 
-/// The engine may hold three quarters of the memory the container has, the smaller of its configured size and what the
-/// kernel reports as available, and never more than WebAssembly can address.
+/// Pass 2 gets half of the memory the container has, at least 256 MiB and at most 1 GiB.
 #[test]
-fn the_engine_gets_three_quarters_of_the_memory_up_to_what_wasm_can_address() {
-    let gb: usize = 1 << 30;
+fn the_pass_two_budget_is_half_the_memory_between_256_mib_and_1_gib() {
+    let mib: u64 = 1 << 20;
     let plenty = u64::MAX;
-    assert_eq!(engine_memory_bytes(1, plenty), gb / 4 * 3);
-    assert_eq!(engine_memory_bytes(4, plenty), 3 * gb);
-    assert_eq!(engine_memory_bytes(5, plenty), 15 * gb / 4);
-    assert_eq!(engine_memory_bytes(6, plenty), 4 * gb);
-    assert_eq!(engine_memory_bytes(32, plenty), 4 * gb);
+    assert_eq!(pass_two_budget_bytes(1, plenty), 512 * mib);
+    assert_eq!(pass_two_budget_bytes(2, plenty), 1024 * mib);
+    assert_eq!(pass_two_budget_bytes(32, plenty), 1024 * mib);
+    assert_eq!(pass_two_budget_bytes(1, 100 * mib), 256 * mib);
+    assert_eq!(pass_two_budget_bytes(1, 0), 256 * mib);
 }
 
-/// What the guest really has is about 90% of the configured size: at 2 GB Azure showed 1705232 kB available, and the engine's
-/// share follows that, not the 2 GiB the container is sold as.
+/// What the guest really has is about 90% of the configured size, and the budget follows the smaller of that and the
+/// configured size: at 2 GB Azure showed 1705232 kB available.
 #[test]
-fn the_engine_share_follows_the_available_memory_when_that_is_less_than_configured() {
+fn the_pass_two_budget_follows_the_available_memory_when_that_is_less_than_configured() {
     let available = 1_705_232u64 * 1024;
-    assert_eq!(engine_memory_bytes(2, available) as u64, available / 4 * 3);
-    assert!((engine_memory_bytes(2, available) as u64) < 3 * (1u64 << 30) / 2);
-    // 16 GB: 15078548 kB available gives 10.78 GiB, over the WebAssembly limit, so the limit holds
-    assert_eq!(
-        engine_memory_bytes(16, 15_078_548u64 * 1024),
-        4 * (1usize << 30)
-    );
-    // More available than configured does not raise it
-    assert_eq!(engine_memory_bytes(2, 64 << 30), 3 * (1usize << 30) / 2);
+    assert_eq!(pass_two_budget_bytes(2, available), available / 2);
+    assert_eq!(pass_two_budget_bytes(1, available), 512 << 20);
+    assert_eq!(pass_two_budget_bytes(2, 900 << 20), 450 << 20);
+    assert_eq!(pass_two_budget_bytes(2, 64 << 30), 1 << 30);
 }

@@ -1,5 +1,5 @@
 [workspace]
-members = ["harness"]
+members = ["harness", "engine-native"]
 exclude = ["spike/0.5-wasm-probe"]
 resolver = "3"
 

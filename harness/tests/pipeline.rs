@@ -5,8 +5,7 @@ mod common;
 
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
-use aseryx_enclave_harness::consent::Bytes32;
-use aseryx_enclave_harness::engine::{EngineModule, Limits};
+use aseryx_enclave_harness::engine::NativeEngine;
 use aseryx_enclave_harness::error_code::ErrorCode;
 use aseryx_enclave_harness::manifest::Manifest;
 use aseryx_enclave_harness::pipeline::{PipelineError, run_passes};
@@ -25,7 +24,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 const LIMIT: u64 = u64::MAX;
-const PINNED: &str = "0x9bec14d49e3a56512cc0e54f7bd0d060841376ab94c301b7df7bfe3bba6a466d";
 const SALT: &str = "abababababababababababababababababababababababababababababababab";
 const MANIFEST_ID: &str = "QmTestManifest";
 const KEY: [u8; 32] = [7; 32];
@@ -37,13 +35,8 @@ fn env_path(name: &str) -> PathBuf {
     )
 }
 
-fn module() -> EngineModule {
-    let bytes = std::fs::read(env_path("ENCLAVE_ENGINE_WASM")).expect("engine module");
-    let limits = Limits {
-        deadline: Duration::from_secs(120),
-        max_memory_bytes: 2 << 30,
-    };
-    EngineModule::load(&bytes, Bytes32::parse(PINNED).expect("pin"), limits).expect("loads")
+fn module() -> NativeEngine {
+    common::native_engine()
 }
 
 fn golden() -> Vec<u8> {
@@ -103,7 +96,7 @@ impl Fetcher for Blobs {
     }
 }
 
-fn start(module: &EngineModule, manifest: &Manifest) -> aseryx_enclave_harness::engine::Run {
+fn start(module: &NativeEngine, manifest: &Manifest) -> aseryx_enclave_harness::engine::Run {
     module
         .appraisal(
             &manifest.upload_name,
@@ -114,7 +107,7 @@ fn start(module: &EngineModule, manifest: &Manifest) -> aseryx_enclave_harness::
         .expect("start")
 }
 
-fn direct(module: &EngineModule, plain: &[u8]) -> String {
+fn direct(module: &NativeEngine, plain: &[u8]) -> String {
     let mut run = module
         .appraisal("comma-clean.csv", "csv", Some(SALT), Some(MANIFEST_ID))
         .expect("start");
