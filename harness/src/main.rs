@@ -7,20 +7,24 @@ use aseryx_enclave_harness::api::{ApiClient, ApiJobSource};
 use aseryx_enclave_harness::attest::SidecarAttestor;
 use aseryx_enclave_harness::chain::RpcChain;
 use aseryx_enclave_harness::config::{
-    Config, ConfigError, cgroup_limit_text, check_memory, engine_memory_bytes, mem_available_bytes,
+    Config, ConfigError, cgroup_limit_text, check_memory, mem_available_bytes,
+    pass_two_budget_bytes,
 };
 use aseryx_enclave_harness::consent::Domain;
-use aseryx_enclave_harness::engine::{EngineModule, Limits};
+use aseryx_enclave_harness::engine::{Limits, NativeEngine};
 use aseryx_enclave_harness::job::{Services, run_job};
 use aseryx_enclave_harness::lit::ApiRelay;
 use aseryx_enclave_harness::metrics::Recorder;
 use aseryx_enclave_harness::prove::{ArkProver, BucketSource, parse_pins};
 use aseryx_enclave_harness::store::{CipherCache, HttpFetcher, IpfsGateway};
 use std::process::ExitCode;
+use std::time::Duration;
 
 const CGROUP_V2_MEMORY_MAX: &str = "/sys/fs/cgroup/memory.max";
 const CGROUP_V1_MEMORY_LIMIT: &str = "/sys/fs/cgroup/memory/memory.limit_in_bytes";
 const MEMINFO: &str = "/proc/meminfo";
+/// How long past its deadline an engine run may stay open before the watchdog ends the process.
+const ENGINE_HARD_GRACE: Duration = Duration::from_secs(120);
 /// The circuits the workload proves with, by the SHA-256 of each artifact; part of the image, so part of the identity.
 const CIRCUIT_PINS: &str = include_str!("../circuit-pins.json");
 
@@ -49,19 +53,15 @@ fn main() -> ExitCode {
         Ok(bytes) => bytes,
         Err(error) => return start_failure("memory", error),
     };
-    let engine_bytes = match std::fs::read(&config.engine_path) {
-        Ok(bytes) => bytes,
-        Err(error) => return start_failure("engine module", error),
-    };
     let limits = Limits {
         deadline: config.engine_deadline,
-        max_memory_bytes: engine_memory_bytes(memory, available),
+        hard_grace: ENGINE_HARD_GRACE,
+        pass_two_budget_bytes: pass_two_budget_bytes(memory, available),
     };
-    let engine = match EngineModule::load(&engine_bytes, config.engine_sha256, limits) {
+    let engine = match NativeEngine::new(config.engine_sha256, limits) {
         Ok(engine) => engine,
-        Err(error) => return start_failure("engine module", error),
+        Err(error) => return start_failure("engine", error),
     };
-    drop(engine_bytes);
     let cache = match CipherCache::new(&config.cache_dir) {
         Ok(cache) => cache,
         Err(error) => return start_failure("cache", error),
@@ -99,7 +99,7 @@ fn main() -> ExitCode {
         cache: &cache,
         engine: &engine,
         prover: &prover,
-        engine_module_sha256: config.engine_sha256,
+        engine_library_sha256: config.engine_sha256,
         domain,
         memory_gb: memory,
         parallel_fetches: config.parallel_fetches,

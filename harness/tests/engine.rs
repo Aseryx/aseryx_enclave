@@ -1,18 +1,20 @@
-//! The engine module runs under wasmtime and reproduces aseryx-engine's goldens.
+//! The engine linked into the workload reproduces aseryx-engine's goldens, obeys its limits and is pinned by its hash.
 //!
-//! The tests read the module browsers run and the aseryx-engine fixtures from the paths in `ENCLAVE_ENGINE_WASM` and
-//! `ENCLAVE_TABULAR_FIXTURES` (`make test` sets both) and fail when either is missing.
+//! The tests read the aseryx-engine fixtures from the path in `ENCLAVE_TABULAR_FIXTURES` (`make test` sets it) and fail
+//! when it is missing.
+
+mod common;
 
 use aseryx_enclave_harness::consent::Bytes32;
-use aseryx_enclave_harness::engine::{EngineError, EngineModule, Limits, Run};
+use aseryx_enclave_harness::engine::{EngineError, Limits, NativeEngine, Run};
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use std::path::PathBuf;
-use std::time::Duration;
+use std::process::Command;
+use std::time::{Duration, Instant};
 
-const PINNED: &str = "0x9bec14d49e3a56512cc0e54f7bd0d060841376ab94c301b7df7bfe3bba6a466d";
 const RULES_HASH: &str =
     "196377069280065456317493222910811677995390882464815658788936813714641954860";
+const WATCHDOG_CHILD: &str = "ENCLAVE_TEST_WATCHDOG_CHILD";
 
 fn env_path(name: &str) -> PathBuf {
     PathBuf::from(
@@ -21,33 +23,24 @@ fn env_path(name: &str) -> PathBuf {
     )
 }
 
-fn limits() -> Limits {
-    Limits {
-        deadline: Duration::from_secs(120),
-        max_memory_bytes: 2 << 30,
-    }
+fn module() -> NativeEngine {
+    common::native_engine()
 }
 
-fn wasm_bytes() -> Vec<u8> {
-    std::fs::read(env_path("ENCLAVE_ENGINE_WASM")).expect("the engine module")
-}
-
-fn module() -> EngineModule {
-    EngineModule::load(
-        &wasm_bytes(),
-        Bytes32::parse(PINNED).expect("pin"),
-        limits(),
-    )
-    .expect("the pinned module loads")
-}
-
-fn run_over(mut run: Run, data: &[u8]) -> Result<String, EngineError> {
+/// Runs a whole file through a run and returns the number of readings with the result.
+fn read_over(mut run: Run, data: &[u8]) -> Result<(u32, String), EngineError> {
+    let mut readings = 0;
     loop {
         run.feed(data)?;
+        readings += 1;
         if !run.next_pass()? {
-            return run.finish();
+            return Ok((readings, run.finish()?));
         }
     }
+}
+
+fn run_over(run: Run, data: &[u8]) -> Result<String, EngineError> {
+    read_over(run, data).map(|(_, result)| result)
 }
 
 fn fixtures() -> PathBuf {
@@ -58,31 +51,36 @@ fn json(text: &str) -> Value {
     serde_json::from_str(text).expect("JSON")
 }
 
-/// A module whose hash is not the pinned one is refused before it is compiled.
+/// An engine is started only with the hash of the library this build is linked with.
 #[test]
-fn a_module_with_another_hash_is_refused() {
-    let mut bytes = wasm_bytes();
-    bytes.push(0);
-    match EngineModule::load(&bytes, Bytes32::parse(PINNED).expect("pin"), limits()) {
-        Err(EngineError::NotPinned { found }) => assert_ne!(found.to_string(), PINNED),
+fn a_pin_that_is_not_the_linked_librarys_hash_is_refused() {
+    let linked = NativeEngine::library_sha256();
+    let mut other = linked;
+    other.0[0] ^= 1;
+    match NativeEngine::new(other, common::engine_limits()) {
+        Err(EngineError::NotPinned { found }) => assert_eq!(found, linked),
         other => panic!("expected NotPinned, got {:?}", other.err()),
     }
+    assert!(NativeEngine::new(linked, common::engine_limits()).is_ok());
 }
 
-/// A module that imports anything beyond the four wasm-bindgen functions is refused, so it cannot reach a clock, a
-/// file or a network.
+/// The library this build is linked with is the vendored release, by its recorded hash.
 #[test]
-fn a_module_that_imports_anything_else_is_refused() {
-    let bytes = wat::parse_str(r#"(module (import "env" "now" (func)))"#).expect("wat");
-    let pin = Bytes32(Sha256::digest(&bytes).into());
-    assert!(
-        matches!(EngineModule::load(&bytes, pin, limits()), Err(EngineError::Load(message)) if message.contains("unexpected import"))
+fn the_linked_library_is_the_vendored_one() {
+    let recorded = std::fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../engine/libaseryx_engine_ffi.a.sha256"),
+    )
+    .expect("the library's .sha256");
+    let hash = recorded.split_whitespace().next().expect("hash");
+    assert_eq!(
+        NativeEngine::library_sha256(),
+        Bytes32::parse(&format!("0x{hash}")).expect("hex")
     );
 }
 
-/// The module reports the version and frozen rules the plan pins.
+/// The engine reports the version and frozen rules the plan pins.
 #[test]
-fn the_module_reports_the_pinned_rules() {
+fn the_engine_reports_the_pinned_rules() {
     let info = module().info().expect("info");
     assert_eq!(
         (
@@ -92,7 +90,7 @@ fn the_module_reports_the_pinned_rules() {
             info.rules_version.as_str(),
             info.rules_hash.as_str()
         ),
-        ("0.16.1", "tabular", "tabular_v12", "v12.0", RULES_HASH)
+        ("0.17.0", "tabular", "tabular_v12", "v12.0", RULES_HASH)
     );
 }
 
@@ -179,40 +177,105 @@ fn an_argument_the_engine_refuses_is_reported_as_its_error() {
     ));
 }
 
-/// A run that outlives its deadline stops with a deadline error.
+/// A run that outlives its deadline stops with a deadline error at its next call.
 #[test]
 fn a_run_past_its_deadline_is_stopped() {
-    let slow = EngineModule::load(
-        &wasm_bytes(),
-        Bytes32::parse(PINNED).expect("pin"),
+    let slow = NativeEngine::new(
+        NativeEngine::library_sha256(),
         Limits {
-            deadline: Duration::from_millis(200),
-            max_memory_bytes: 2 << 30,
+            deadline: Duration::from_millis(50),
+            ..common::engine_limits()
         },
     )
-    .expect("loads");
-    let mut data = b"id,value,label\n".to_vec();
-    (0..1_500_000)
-        .for_each(|i| data.extend_from_slice(format!("{i},{},row{i}\n", i % 97).as_bytes()));
-    let outcome = run_over(
-        slow.appraisal("big.csv", "csv", None, None).expect("start"),
-        &data,
-    );
+    .expect("starts");
+    let mut run = slow.appraisal("big.csv", "csv", None, None).expect("start");
+    std::thread::sleep(Duration::from_millis(120));
+    let outcome = run.feed(b"id,value\n1,2\n");
     assert!(matches!(outcome, Err(EngineError::Deadline)), "{outcome:?}");
+    assert!(matches!(run.next_pass(), Err(EngineError::Deadline)));
 }
 
-/// A run that needs more memory than its limit allows stops with a memory error.
+/// A smaller pass 2 budget reads a large file more times and changes no result.
 #[test]
-fn a_run_over_its_memory_limit_is_stopped() {
-    let tight = EngineModule::load(
-        &wasm_bytes(),
-        Bytes32::parse(PINNED).expect("pin"),
+fn a_smaller_pass_two_budget_adds_readings_and_changes_no_result() {
+    let mut data = b"id,region,amount\n".to_vec();
+    (0..120_000).for_each(|i| {
+        data.extend_from_slice(format!("{i},r{},{}\n", i % 5, (i * 7919) % 1000).as_bytes());
+    });
+    let with = |budget: u64| {
+        let engine = NativeEngine::new(
+            NativeEngine::library_sha256(),
+            Limits {
+                pass_two_budget_bytes: budget,
+                ..common::engine_limits()
+            },
+        )
+        .expect("starts");
+        read_over(
+            engine.appraisal("a.csv", "csv", None, None).expect("start"),
+            &data,
+        )
+        .expect("appraises")
+    };
+    let (large_readings, large) = with(1 << 30);
+    let (small_readings, small) = with(1 << 20);
+    assert_eq!(large_readings, 3);
+    assert!(
+        small_readings > large_readings,
+        "{small_readings} readings at 1 MiB"
+    );
+    assert_eq!(large, small);
+}
+
+/// A budget outside the engine's range is refused when the appraisal starts.
+#[test]
+fn a_pass_two_budget_out_of_range_is_refused_at_the_start() {
+    let engine = NativeEngine::new(
+        NativeEngine::library_sha256(),
         Limits {
-            deadline: Duration::from_secs(60),
-            max_memory_bytes: 64 << 10,
+            pass_two_budget_bytes: 1,
+            ..common::engine_limits()
         },
     )
-    .expect("loads");
-    let outcome = tight.appraisal("f.csv", "csv", None, None).map(|_| ());
-    assert!(matches!(outcome, Err(EngineError::Memory)), "{outcome:?}");
+    .expect("starts");
+    assert!(matches!(
+        engine.appraisal("a.csv", "csv", None, None),
+        Err(EngineError::Module(_))
+    ));
+}
+
+/// A run that stays open past its deadline and the grace period ends the process: a call into the engine cannot be
+/// interrupted, so the watchdog does. The test runs this binary again as the child that opens such a run.
+#[test]
+fn a_run_left_open_past_its_grace_period_ends_the_process() {
+    if std::env::var_os(WATCHDOG_CHILD).is_some() {
+        let engine = NativeEngine::new(
+            NativeEngine::library_sha256(),
+            Limits {
+                deadline: Duration::from_millis(200),
+                hard_grace: Duration::from_millis(500),
+                pass_two_budget_bytes: 256 << 20,
+            },
+        )
+        .expect("starts");
+        let _open = engine.appraisal("a.csv", "csv", None, None).expect("start");
+        std::thread::sleep(Duration::from_secs(30));
+        std::process::exit(0);
+    }
+    let began = Instant::now();
+    let status = Command::new(std::env::current_exe().expect("this test binary"))
+        .args([
+            "--exact",
+            "a_run_left_open_past_its_grace_period_ends_the_process",
+            "--nocapture",
+        ])
+        .env(WATCHDOG_CHILD, "1")
+        .status()
+        .expect("runs");
+    assert_eq!(status.code(), Some(1), "the watchdog's exit status");
+    assert!(
+        began.elapsed() < Duration::from_secs(20),
+        "{:?}",
+        began.elapsed()
+    );
 }

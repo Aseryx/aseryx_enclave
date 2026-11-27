@@ -1,0 +1,16 @@
+[package]
+name = "aseryx-engine-native"
+version = "0.0.0"
+edition.workspace = true
+publish.workspace = true
+description = "Safe Rust over the C ABI of the vendored aseryx-engine static library"
+build = "build.rs"
+
+[dependencies]
+thiserror = "2.0.21"
+
+[build-dependencies]
+sha2 = "0.11.1"
+
+[lints.rust]
+missing_docs = "deny"

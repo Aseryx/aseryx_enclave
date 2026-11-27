@@ -13,7 +13,7 @@ use aseryx_enclave_harness::claim::{ClaimError, JobSource};
 use aseryx_enclave_harness::consent::{
     Address, Bytes32, DisputeJob, Domain, Uint256, result_digest,
 };
-use aseryx_enclave_harness::engine::{EngineModule, Limits};
+use aseryx_enclave_harness::engine::NativeEngine;
 use aseryx_enclave_harness::error_code::ErrorCode;
 use aseryx_enclave_harness::job::{
     ApiError, DisputeCheck, DisputeInputs, DisputeType, Evidence, Job, JobApi, ProveError, Prover,
@@ -44,9 +44,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use std::time::Duration;
 
-const PINNED: &str = "0x9bec14d49e3a56512cc0e54f7bd0d060841376ab94c301b7df7bfe3bba6a466d";
 const EVIDENCE_KEY: [u8; 32] = [9; 32];
 const JOB: &str = "0xd828621b01841c9a5630937da5ffb06cf43417178bee1149d90b84ca148408fa";
 const WORKLOAD: &str = "0xf6a7a4f67b3edf6d9d7c7098f9b514f53f263be0a4e32fbac2ee585d6972f20f";
@@ -62,13 +60,8 @@ fn env_path(name: &str) -> PathBuf {
     )
 }
 
-fn engine() -> EngineModule {
-    let limits = Limits {
-        deadline: Duration::from_secs(120),
-        max_memory_bytes: 2 << 30,
-    };
-    let wasm = std::fs::read(env_path("ENCLAVE_ENGINE_WASM")).expect("engine module");
-    EngineModule::load(&wasm, Bytes32::parse(PINNED).expect("pin"), limits).expect("loads")
+fn engine() -> NativeEngine {
+    common::native_engine()
 }
 
 fn golden(name: &str) -> Vec<u8> {
@@ -94,7 +87,7 @@ fn feed(mut run: aseryx_enclave_harness::engine::Run, plain: &[u8]) -> String {
 }
 
 /// The label the engine writes for a file, its hash and its inputs commitment.
-fn label_of(engine: &EngineModule, plain: &[u8]) -> (String, String, String) {
+fn label_of(engine: &NativeEngine, plain: &[u8]) -> (String, String, String) {
     let appraisal: Value = serde_json::from_str(&feed(
         engine
             .appraisal(
@@ -353,7 +346,7 @@ fn run_on_disk(
         cache: &cache,
         engine: &engine,
         prover: &Unused,
-        engine_module_sha256: Bytes32::parse(PINNED).expect("pin"),
+        engine_library_sha256: NativeEngine::library_sha256(),
         domain: domain(),
         memory_gb: 4,
         parallel_fetches: 3,
@@ -442,9 +435,13 @@ fn a_label_dispute_over_the_licensed_file_reproduces_the_label() {
     assert_eq!(result["error"], Value::Null);
     assert_eq!(result["workloadIdentity"], WORKLOAD);
     assert_eq!(
-        result["engineModuleSha256"],
-        PINNED.trim_start_matches("0x")
+        result["engineLibrarySha256"],
+        NativeEngine::library_sha256()
+            .to_string()
+            .trim_start_matches("0x")
     );
+    assert_eq!(result["engine"], "native");
+    assert_eq!(result["v"], 2);
     assert!(signature_verifies(body));
     assert_eq!(r.released.len(), 1);
     let mut names: Vec<&str> = r.released[0]

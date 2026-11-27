@@ -10,7 +10,7 @@ use crate::chain::ChainReader;
 use crate::check::parse_check;
 use crate::claim::{Claimed, JobSource, claim_job};
 use crate::consent::{AppraisalJob, Bytes32, Domain, ThresholdJob, Uint256};
-use crate::engine::{EngineModule, Run};
+use crate::engine::{NativeEngine, Run};
 use crate::error_code::ErrorCode;
 use crate::label::{open_label, seal_label};
 use crate::lit::{KeyReleaser, open_attested_response};
@@ -157,11 +157,11 @@ pub struct Services<'a> {
     /// Holds the ciphertext chunks.
     pub cache: &'a CipherCache,
     /// The appraisal engine.
-    pub engine: &'a EngineModule,
+    pub engine: &'a NativeEngine,
     /// Makes proofs.
     pub prover: &'a dyn Prover,
-    /// The SHA-256 of the engine module that runs, as the pin has it.
-    pub engine_module_sha256: Bytes32,
+    /// The SHA-256 of the engine library that runs, as the pin has it.
+    pub engine_library_sha256: Bytes32,
     /// The chain and contract the consents are signed for.
     pub domain: Domain,
     /// The memory the container can see, in gigabytes.
@@ -309,7 +309,7 @@ fn verify_consent(
         manifest_cid: record.manifest_cid,
         plaintext_hash: record.plaintext_hash,
         engine_version: info.version,
-        engine_module_sha256: services.engine_module_sha256,
+        engine_library_sha256: services.engine_library_sha256,
     };
     Ok(Verified {
         digest,
@@ -463,10 +463,7 @@ fn threshold(
         services.metrics,
     )
     .map_err(|e| e.code())?;
-    let revision = read(
-        services.engine.threshold_circuit_revision(),
-        ErrorCode::AppraiseFailed,
-    )?;
+    let revision = services.engine.threshold_circuit_revision();
     inputs
         .checks
         .iter()

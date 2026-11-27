@@ -51,15 +51,12 @@ fn stages_and_waits_are_added_up() {
     recorder.proof_made();
     recorder.token_refreshed();
     recorder.token_refreshed();
-    recorder.record_engine_peak(100);
-    recorder.record_engine_peak(50);
     let m = recorder.snapshot_with(&cache, 777);
     assert!(m["stageMs"]["checks"].as_u64().expect("checks") >= 30);
     assert_eq!(m["stageMs"]["claim"], 0);
     assert_eq!(m["stageMs"]["wait"], 10);
     assert_eq!(m["proofs"], 1);
     assert_eq!(m["tokenRefreshes"], 2);
-    assert_eq!(m["enginePeakBytes"], 100, "the largest value is kept");
     assert_eq!(m["rssPeakBytes"], 777);
     assert_eq!(m["passes"].as_array().expect("passes").len(), 2);
     assert_eq!(m["passes"][0]["parseMs"], 40);
@@ -92,10 +89,8 @@ fn passes_beyond_the_cap_are_added_into_the_last_listed() {
 fn a_value_past_the_signable_limit_is_held_at_the_limit() {
     let recorder = Recorder::new();
     let cache = CipherCache::new(&unique_dir("metrics-limit")).expect("cache");
-    recorder.record_engine_peak(u64::MAX);
     let m = recorder.snapshot_with(&cache, u64::MAX);
     let limit = (1u64 << 53) - 1;
-    assert_eq!(m["enginePeakBytes"], limit);
     assert_eq!(m["rssPeakBytes"], limit);
     assert!(aseryx_enclave_harness::consent::canonical_json(&m).is_ok());
 }

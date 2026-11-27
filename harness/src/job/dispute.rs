@@ -134,7 +134,7 @@ fn verify_consent(
             buyer: format!("0x{}", hex::encode(buyer.0)),
             evidence_hash: c.evidence_hash,
             engine_version: info.version,
-            engine_module_sha256: services.engine_module_sha256,
+            engine_library_sha256: services.engine_library_sha256,
         },
     })
 }

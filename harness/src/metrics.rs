@@ -55,7 +55,6 @@ struct Data {
     proofs: u64,
     refreshes: u64,
     passes: Vec<PassTiming>,
-    engine_peak_bytes: u64,
 }
 
 /// Collects a job's measurements as it runs.
@@ -136,12 +135,6 @@ impl Recorder {
         self.lock().passes.push(timing);
     }
 
-    /// Records the engines' linear memory, in bytes; the record keeps the largest value it is given.
-    pub fn record_engine_peak(&self, bytes: u64) {
-        let mut data = self.lock();
-        data.engine_peak_bytes = data.engine_peak_bytes.max(bytes);
-    }
-
     /// The metrics object as of now, with the fetch figures of `cache`.
     #[must_use]
     pub fn snapshot(&self, cache: &CipherCache) -> Value {
@@ -193,7 +186,6 @@ impl Recorder {
                 "waitMs": millis(p.wait),
                 "chunks": capped(p.chunks),
             })).collect::<Vec<_>>(),
-            "enginePeakBytes": capped(data.engine_peak_bytes),
             "rssPeakBytes": capped(rss_peak_bytes),
         })
     }

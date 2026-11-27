@@ -1,69 +1,71 @@
-//! The appraisal engine: the `aseryx_engine_wasm_bg.wasm` module that browsers run, hosted in wasmtime.
+//! The appraisal engine: the `aseryx-engine` library linked into the workload, called through `aseryx-engine-native`.
 //!
-//! The module is pinned by its SHA-256 and may import only the four functions wasm-bindgen declares, so it has no way
-//! to reach a clock, a file or a network. The harness hands it decrypted bytes and reads back JSON. Every run has its own
-//! instance, a memory cap and a wall-clock deadline.
+//! The library is pinned by its SHA-256: the settings carry the hash the container is told to run, and the harness
+//! starts only when it equals the hash of the library it was built with. The engine reads and writes nothing but the
+//! bytes it is given, so it has no way to reach a clock, a file or a network.
+//!
+//! Every run has a deadline, counted from its creation and checked before each slice of bytes is fed. A call into the
+//! engine cannot be interrupted, so a watchdog thread ends the process when a run is still open a grace period
+//! ([`Limits::hard_grace`]) after its deadline; the orchestrator then ends the job as timed out, as it does for any workload that posts no result.
 
 use crate::consent::Bytes32;
-use sha2::{Digest, Sha256};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use aseryx_engine_native as native;
+use std::collections::BTreeMap;
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::JoinHandle;
-use std::time::Duration;
-use wasmtime::{
-    Caller, Config, ExternRef, Instance, Linker, Module, Ref, ResourceLimiter, Rooted, Store,
-    Table, Trap, Val,
-};
+use std::time::{Duration, Instant};
 
-const GLUE: &str = "./aseryx_engine_wasm_bg.js";
-const IMPORTS: [&str; 4] = [
-    "__wbg_Error_30c8987f7c2ed4e2",
-    "__wbg___wbindgen_throw_41e9ee4f547fc59a",
-    "__wbindgen_generic_0000000000000001",
-    "__wbindgen_init_externref_table",
-];
 const FEED_SLICE_BYTES: usize = 1 << 20;
-const TICK: Duration = Duration::from_millis(50);
+const WATCH_INTERVAL: Duration = Duration::from_secs(1);
+/// The exit status of a process the watchdog ended: the job failed and no result was posted.
+const WATCHDOG_EXIT: i32 = 1;
 
 /// Why the engine could not run.
 #[derive(Debug, thiserror::Error)]
 pub enum EngineError {
-    /// The module's SHA-256 is not the pinned one.
-    #[error("the engine module is not the pinned one: {found}")]
+    /// The SHA-256 of the linked library is not the pinned one.
+    #[error("the engine library is not the pinned one: {found}")]
     NotPinned {
-        /// The SHA-256 of the module that was given.
+        /// The SHA-256 of the library this build is linked with.
         found: Bytes32,
     },
-    /// The module could not be compiled or declares an import outside the allowed four.
-    #[error("the engine module was refused: {0}")]
-    Load(String),
-    /// The module could not be instantiated or called.
+    /// The engine could not be called.
     #[error("the engine failed: {0}")]
     Host(String),
-    /// The run used more memory than its limit allows.
-    #[error("the engine ran out of memory")]
-    Memory,
     /// The run took longer than its deadline.
     #[error("the engine ran past its deadline")]
     Deadline,
-    /// The module reported an error of its own, for example a malformed label.
+    /// The engine reported an error of its own, for example a malformed label.
     #[error("the engine reported: {0}")]
     Module(String),
 }
 
-/// The limits of one run.
+impl From<native::Error> for EngineError {
+    fn from(error: native::Error) -> Self {
+        match error {
+            native::Error::Refused(message) => Self::Module(message),
+            other => Self::Host(other.to_string()),
+        }
+    }
+}
+
+/// The limits of one engine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limits {
     /// The wall-clock time a run may take, from its creation, including the time between calls.
     pub deadline: Duration,
-    /// The most linear memory the module may hold, in bytes.
-    pub max_memory_bytes: usize,
+    /// How long past its deadline a run may stay open before the watchdog ends the process: a call into the engine
+    /// cannot be interrupted, so this bounds a call that does not return.
+    pub hard_grace: Duration,
+    /// The memory pass 2 of an appraisal may hold, in bytes. The file is read once more for each slice of the row keys
+    /// that does not fit, and every result is the same for any budget.
+    pub pass_two_budget_bytes: u64,
 }
 
-/// What the module says about itself.
+/// What the engine says about itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ModuleInfo {
-    /// The package version.
+pub struct EngineInfo {
+    /// The engine's crate version.
     pub version: String,
     /// The formula family.
     pub family: String,
@@ -75,237 +77,143 @@ pub struct ModuleInfo {
     pub rules_hash: String,
 }
 
-/// Which engine a run drives.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Kind {
-    Appraisal,
-    LabelCheck,
-    ThresholdCount,
+struct Open {
+    next: u64,
+    deadlines: BTreeMap<u64, Instant>,
+    stopped: bool,
 }
 
-impl Kind {
-    fn export(self, op: &str) -> String {
-        let prefix = match self {
-            Self::Appraisal => "appraisal",
-            Self::LabelCheck => "labelcheck",
-            Self::ThresholdCount => "thresholdcount",
-        };
-        format!("{prefix}_{op}")
-    }
+/// Ends the process when a run stays open past its deadline and a grace period.
+struct Watchdog {
+    state: Arc<(Mutex<Open>, Condvar)>,
+    thread: Option<JoinHandle<()>>,
 }
 
-/// Refuses memory growth past the cap and remembers that it did, so the resulting trap is reported as a memory error.
-struct MemoryCap {
-    max_bytes: usize,
-    denied: bool,
-    /// The largest linear memory the module has been given, in bytes.
-    peak_bytes: usize,
+fn locked(state: &Mutex<Open>) -> MutexGuard<'_, Open> {
+    state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-impl ResourceLimiter for MemoryCap {
-    fn memory_growing(
-        &mut self,
-        _current: usize,
-        desired: usize,
-        _maximum: Option<usize>,
-    ) -> wasmtime::Result<bool> {
-        let allowed = desired <= self.max_bytes;
-        self.denied |= !allowed;
-        if allowed {
-            self.peak_bytes = self.peak_bytes.max(desired);
-        }
-        Ok(allowed)
-    }
-
-    fn table_growing(
-        &mut self,
-        _current: usize,
-        _desired: usize,
-        _maximum: Option<usize>,
-    ) -> wasmtime::Result<bool> {
-        Ok(true)
-    }
-}
-
-struct State {
-    table: Option<Table>,
-    cap: MemoryCap,
-}
-
-fn host_error(error: impl std::fmt::Display) -> EngineError {
-    EngineError::Host(error.to_string())
-}
-
-fn classify(error: &wasmtime::Error, memory_denied: bool) -> EngineError {
-    match error.downcast_ref::<Trap>() {
-        Some(Trap::Interrupt) => EngineError::Deadline,
-        _ if memory_denied => EngineError::Memory,
-        _ => EngineError::Host(error.to_string()),
-    }
-}
-
-fn read_string(caller: &mut Caller<'_, State>, ptr: i32, len: i32) -> wasmtime::Result<String> {
-    let memory = caller
-        .get_export("memory")
-        .and_then(wasmtime::Extern::into_memory)
-        .ok_or_else(|| wasmtime::format_err!("no memory export"))?;
-    let start = ptr as u32 as usize;
-    let end = start + len as u32 as usize;
-    let bytes = memory
-        .data(&caller)
-        .get(start..end)
-        .ok_or_else(|| wasmtime::format_err!("string out of bounds"))?;
-    Ok(String::from_utf8(bytes.to_vec())?)
-}
-
-fn link(linker: &mut Linker<State>) -> wasmtime::Result<()> {
-    linker.func_wrap(
-        GLUE,
-        IMPORTS[0],
-        |mut caller: Caller<'_, State>, ptr: i32, len: i32| {
-            let text = read_string(&mut caller, ptr, len)?;
-            Ok(Some(ExternRef::new(&mut caller, text)?))
-        },
-    )?;
-    linker.func_wrap(
-        GLUE,
-        IMPORTS[2],
-        |mut caller: Caller<'_, State>, ptr: i32, len: i32| {
-            let text = read_string(&mut caller, ptr, len)?;
-            Ok(Some(ExternRef::new(&mut caller, text)?))
-        },
-    )?;
-    linker.func_wrap(
-        GLUE,
-        IMPORTS[1],
-        |mut caller: Caller<'_, State>, ptr: i32, len: i32| -> wasmtime::Result<()> {
-            let text = read_string(&mut caller, ptr, len)?;
-            wasmtime::bail!("the module threw: {text}")
-        },
-    )?;
-    linker.func_wrap(
-        GLUE,
-        IMPORTS[3],
-        |mut caller: Caller<'_, State>| -> wasmtime::Result<()> {
-            let table = caller
-                .data()
-                .table
-                .ok_or_else(|| wasmtime::format_err!("the externref table is not set"))?;
-            let offset = table.grow(&mut caller, 4, Ref::Extern(None))?;
-            table.set(&mut caller, 0, Ref::Extern(None))?;
-            for slot in 0..4 {
-                table.set(&mut caller, offset + slot, Ref::Extern(None))?;
+impl Watchdog {
+    fn start() -> Self {
+        let state = Arc::new((
+            Mutex::new(Open {
+                next: 0,
+                deadlines: BTreeMap::new(),
+                stopped: false,
+            }),
+            Condvar::new(),
+        ));
+        let watched = Arc::clone(&state);
+        let thread = std::thread::spawn(move || {
+            let (open, wake) = &*watched;
+            let mut guard = locked(open);
+            while !guard.stopped {
+                if overdue(&guard.deadlines, Instant::now()) {
+                    eprintln!(
+                        "the engine is past its deadline and cannot be interrupted: ending the process"
+                    );
+                    std::process::exit(WATCHDOG_EXIT);
+                }
+                guard = wake
+                    .wait_timeout(guard, WATCH_INTERVAL)
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .0;
             }
-            Ok(())
-        },
-    )?;
-    Ok(())
+        });
+        Self {
+            state,
+            thread: Some(thread),
+        }
+    }
+
+    fn open(&self, hard_deadline: Instant) -> u64 {
+        let mut guard = locked(&self.state.0);
+        guard.next += 1;
+        let id = guard.next;
+        guard.deadlines.insert(id, hard_deadline);
+        id
+    }
 }
 
-/// A compiled engine module. Each run it hands out has its own instance.
-pub struct EngineModule {
-    engine: wasmtime::Engine,
-    module: Module,
+impl Drop for Watchdog {
+    fn drop(&mut self) {
+        locked(&self.state.0).stopped = true;
+        self.state.1.notify_all();
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+/// Whether any open run is past its hard deadline at `now`.
+fn overdue(deadlines: &BTreeMap<u64, Instant>, now: Instant) -> bool {
+    deadlines.values().any(|hard| now > *hard)
+}
+
+/// The engine the workload runs: the linked library and the limits its runs obey.
+pub struct NativeEngine {
     limits: Limits,
-    stop: Arc<AtomicBool>,
-    ticker: Option<JoinHandle<()>>,
+    watchdog: Watchdog,
 }
 
-impl EngineModule {
-    /// Compiles the module after checking its SHA-256 against the pin and its imports against the allowed four.
+impl NativeEngine {
+    /// The SHA-256 of the engine library this build is linked with.
+    #[must_use]
+    pub fn library_sha256() -> Bytes32 {
+        Bytes32(native::LIBRARY_SHA256)
+    }
+
+    /// Starts the engine after checking the pinned SHA-256 against the library this build is linked with.
     ///
     /// # Errors
     ///
-    /// [`EngineError::NotPinned`] for another module, [`EngineError::Load`] for one that does not compile or imports
-    /// anything else.
-    pub fn load(bytes: &[u8], pinned: Bytes32, limits: Limits) -> Result<Self, EngineError> {
-        let found = Bytes32(Sha256::digest(bytes).into());
+    /// [`EngineError::NotPinned`] when the pin is not the linked library's hash.
+    pub fn new(pinned: Bytes32, limits: Limits) -> Result<Self, EngineError> {
+        let found = Self::library_sha256();
         if found != pinned {
             return Err(EngineError::NotPinned { found });
         }
-        let mut config = Config::new();
-        config.epoch_interruption(true);
-        let engine =
-            wasmtime::Engine::new(&config).map_err(|e| EngineError::Load(e.to_string()))?;
-        let module = Module::new(&engine, bytes).map_err(|e| EngineError::Load(e.to_string()))?;
-        for import in module.imports() {
-            if import.module() != GLUE || !IMPORTS.contains(&import.name()) {
-                return Err(EngineError::Load(format!(
-                    "unexpected import {}.{}",
-                    import.module(),
-                    import.name()
-                )));
-            }
-        }
-        let stop = Arc::new(AtomicBool::new(false));
-        let ticker = {
-            let (engine, stop) = (engine.clone(), Arc::clone(&stop));
-            std::thread::spawn(move || {
-                while !stop.load(Ordering::Relaxed) {
-                    std::thread::sleep(TICK);
-                    engine.increment_epoch();
-                }
-            })
-        };
         Ok(Self {
-            engine,
-            module,
             limits,
-            stop,
-            ticker: Some(ticker),
+            watchdog: Watchdog::start(),
         })
     }
 
-    fn host(&self) -> Result<Host, EngineError> {
-        let mut linker = Linker::new(&self.engine);
-        link(&mut linker).map_err(host_error)?;
-        let state = State {
-            table: None,
-            cap: MemoryCap {
-                max_bytes: self.limits.max_memory_bytes,
-                peak_bytes: 0,
-                denied: false,
+    fn run(&self, inner: Inner) -> Run {
+        let began = Instant::now();
+        let id = self
+            .watchdog
+            .open(began + self.limits.deadline + self.limits.hard_grace);
+        Run {
+            inner,
+            began,
+            deadline: self.limits.deadline,
+            watch: Watch {
+                state: Arc::clone(&self.watchdog.state),
+                id,
             },
-        };
-        let mut store = Store::new(&self.engine, state);
-        store.limiter(|state| &mut state.cap);
-        let ticks = self
-            .limits
-            .deadline
-            .as_millis()
-            .div_ceil(TICK.as_millis())
-            .max(1);
-        store.set_epoch_deadline(u64::try_from(ticks).unwrap_or(u64::MAX));
-        let instance = match linker.instantiate(&mut store, &self.module) {
-            Ok(instance) => instance,
-            Err(error) => return Err(classify(&error, store.data().cap.denied)),
-        };
-        let table = instance
-            .get_table(&mut store, "__wbindgen_externrefs")
-            .ok_or_else(|| host_error("no externref table"))?;
-        store.data_mut().table = Some(table);
-        let mut host = Host { store, instance };
-        host.call("__wbindgen_start", &[], 0)?;
-        Ok(host)
+        }
     }
 
-    /// What the module says about itself.
+    /// What the engine says about itself.
     ///
     /// # Errors
     ///
-    /// [`EngineError::Host`] if the module cannot be instantiated.
-    pub fn info(&self) -> Result<ModuleInfo, EngineError> {
-        let mut host = self.host()?;
-        Ok(ModuleInfo {
-            version: host.string_result("version")?,
-            family: host.string_result("family")?,
-            model: host.string_result("model")?,
-            rules_version: host.string_result("rulesVersion")?,
-            rules_hash: host.string_result("rulesHash")?,
+    /// [`EngineError::Host`] if the engine does not answer.
+    pub fn info(&self) -> Result<EngineInfo, EngineError> {
+        let info = native::info()?;
+        Ok(EngineInfo {
+            version: info.version,
+            family: info.family,
+            model: info.model,
+            rules_version: info.rules_version,
+            rules_hash: info.rules_hash,
         })
     }
 
-    /// Starts an appraisal of one file.
+    /// Starts an appraisal of one file, with the engine's pass 2 budget set from the limits.
     ///
     /// `format` is the file extension without its dot, `salt` is 64 lower-case hex digits or none, and `manifest_id`
     /// is the vault manifest's identifier.
@@ -320,53 +228,15 @@ impl EngineModule {
         salt: Option<&str>,
         manifest_id: Option<&str>,
     ) -> Result<Run, EngineError> {
-        let mut host = self.host()?;
-        let (file_ptr, format_ptr) = (host.write(file.as_bytes())?, host.write(format.as_bytes())?);
-        let (salt_ptr, salt_len) = match salt {
-            Some(text) => (host.write(text.as_bytes())?, text.len()),
-            None => (0, 0),
-        };
-        let result = host.call(
-            "appraisal_new",
-            &[
-                Val::I32(file_ptr),
-                Val::I32(len(file)),
-                Val::I32(format_ptr),
-                Val::I32(len(format)),
-                Val::I32(salt_ptr),
-                Val::I32(i32::try_from(salt_len).map_err(host_error)?),
-            ],
-            3,
-        )?;
-        if result[2] != 0 {
-            return Err(EngineError::Module(host.take_error(result[1])?));
-        }
-        if let Some(id) = manifest_id {
-            let ptr = host.write(id.as_bytes())?;
-            let set = host.call(
-                "appraisal_setManifestId",
-                &[Val::I32(result[0]), Val::I32(ptr), Val::I32(len(id))],
-                2,
-            )?;
-            if set[1] != 0 {
-                return Err(EngineError::Module(host.take_error(set[0])?));
-            }
-        }
-        Ok(Run {
-            host,
-            handle: result[0],
-            kind: Kind::Appraisal,
-        })
+        let mut appraisal = native::Appraisal::new(file, format, salt, manifest_id)?;
+        appraisal.set_pass_two_budget(self.limits.pass_two_budget_bytes)?;
+        Ok(self.run(Inner::Appraisal(appraisal)))
     }
 
     /// The revision of the threshold circuits this engine builds, which names them `threshold_r<revision>_c<conditions>`.
-    ///
-    /// # Errors
-    ///
-    /// [`EngineError::Host`] if the module cannot be instantiated.
-    pub fn threshold_circuit_revision(&self) -> Result<u32, EngineError> {
-        let mut host = self.host()?;
-        u32::try_from(host.call("thresholdCircuitRevision", &[], 1)?[0]).map_err(host_error)
+    #[must_use]
+    pub fn threshold_circuit_revision(&self) -> u32 {
+        native::threshold_circuit_revision()
     }
 
     /// The hash of a label, as the engine computes it: a decimal field element.
@@ -375,19 +245,7 @@ impl EngineModule {
     ///
     /// [`EngineError::Module`] if the text is not a label.
     pub fn label_hash(&self, label_json: &str) -> Result<String, EngineError> {
-        let mut host = self.host()?;
-        let ptr = host.write(label_json.as_bytes())?;
-        let r = host.call("labelHash", &[Val::I32(ptr), Val::I32(len(label_json))], 4)?;
-        if r[3] != 0 {
-            return Err(EngineError::Module(host.take_error(r[2])?));
-        }
-        let text = String::from_utf8(host.read(r[0], r[1])?).map_err(host_error)?;
-        host.call(
-            "__wbindgen_free",
-            &[Val::I32(r[0]), Val::I32(r[1]), Val::I32(1)],
-            0,
-        )?;
-        Ok(text)
+        Ok(native::label_hash(label_json)?)
     }
 
     /// The threshold circuit's input for one counted check, as the engine builds it from the count's JSON result, the
@@ -402,127 +260,85 @@ impl EngineModule {
         check_hash: &str,
         allowed_failure_permille: u32,
     ) -> Result<String, EngineError> {
-        let mut host = self.host()?;
-        let result_ptr = host.write(result_json.as_bytes())?;
-        let hash_ptr = host.write(check_hash.as_bytes())?;
-        let permille = i32::try_from(allowed_failure_permille).map_err(host_error)?;
-        let r = host.call(
-            "thresholdWitness",
-            &[
-                Val::I32(result_ptr),
-                Val::I32(len(result_json)),
-                Val::I32(hash_ptr),
-                Val::I32(len(check_hash)),
-                Val::I32(permille),
-            ],
-            4,
-        )?;
-        if r[3] != 0 {
-            return Err(EngineError::Module(host.take_error(r[2])?));
-        }
-        let text = String::from_utf8(host.read(r[0], r[1])?).map_err(host_error)?;
-        host.call(
-            "__wbindgen_free",
-            &[Val::I32(r[0]), Val::I32(r[1]), Val::I32(1)],
-            0,
-        )?;
-        Ok(text)
+        Ok(native::threshold_witness(
+            result_json,
+            check_hash,
+            allowed_failure_permille,
+        )?)
     }
 
     /// Starts a check of a data label against one file.
     ///
     /// # Errors
     ///
-    /// [`EngineError::Host`] if the module cannot be instantiated.
+    /// [`EngineError::Host`] if the engine cannot start the check.
     pub fn label_check(&self, label_json: &str) -> Result<Run, EngineError> {
-        let mut host = self.host()?;
-        let ptr = host.write(label_json.as_bytes())?;
-        let handle = host.call(
-            "labelcheck_new",
-            &[Val::I32(ptr), Val::I32(len(label_json))],
-            1,
-        )?[0];
-        Ok(Run {
-            host,
-            handle,
-            kind: Kind::LabelCheck,
-        })
+        Ok(self.run(Inner::LabelCheck(native::LabelCheck::new(label_json)?)))
     }
 
     /// Starts a threshold count of one file.
     ///
     /// # Errors
     ///
-    /// [`EngineError::Host`] if the module cannot be instantiated.
+    /// [`EngineError::Host`] if the engine cannot start the count.
     pub fn threshold_count(&self, label_json: &str, check_json: &str) -> Result<Run, EngineError> {
-        let mut host = self.host()?;
-        let (label_ptr, check_ptr) = (
-            host.write(label_json.as_bytes())?,
-            host.write(check_json.as_bytes())?,
-        );
-        let handle = host.call(
-            "thresholdcount_new",
-            &[
-                Val::I32(label_ptr),
-                Val::I32(len(label_json)),
-                Val::I32(check_ptr),
-                Val::I32(len(check_json)),
-            ],
-            1,
-        )?[0];
-        Ok(Run {
-            host,
-            handle,
-            kind: Kind::ThresholdCount,
-        })
+        Ok(self.run(Inner::ThresholdCount(native::ThresholdCount::new(
+            label_json, check_json,
+        )?)))
     }
 }
 
-impl Drop for EngineModule {
+enum Inner {
+    Appraisal(native::Appraisal),
+    LabelCheck(native::LabelCheck),
+    ThresholdCount(native::ThresholdCount),
+}
+
+/// Takes a run off the watchdog's list when the run ends or is dropped.
+struct Watch {
+    state: Arc<(Mutex<Open>, Condvar)>,
+    id: u64,
+}
+
+impl Drop for Watch {
     fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-        if let Some(ticker) = self.ticker.take() {
-            let _ = ticker.join();
-        }
+        locked(&self.state.0).deadlines.remove(&self.id);
     }
-}
-
-fn len(text: &str) -> i32 {
-    i32::try_from(text.len()).unwrap_or(i32::MAX)
 }
 
 /// One run of an engine over one file: feed every pass, then finish.
 pub struct Run {
-    host: Host,
-    handle: i32,
-    kind: Kind,
+    inner: Inner,
+    began: Instant,
+    deadline: Duration,
+    #[allow(
+        dead_code,
+        reason = "dropping it takes the run off the watchdog's list"
+    )]
+    watch: Watch,
 }
 
 impl Run {
-    /// The largest linear memory the engine has held, in bytes.
-    #[must_use]
-    pub fn peak_memory_bytes(&self) -> u64 {
-        self.host.store.data().cap.peak_bytes as u64
+    fn in_time(&self) -> Result<(), EngineError> {
+        if self.began.elapsed() > self.deadline {
+            return Err(EngineError::Deadline);
+        }
+        Ok(())
     }
 
     /// Gives the engine the next bytes of the current pass.
     ///
     /// # Errors
     ///
-    /// [`EngineError::Memory`] or [`EngineError::Deadline`] when a limit is hit, [`EngineError::Host`] otherwise.
+    /// [`EngineError::Deadline`] when the run is past its deadline, [`EngineError::Host`] otherwise.
     pub fn feed(&mut self, bytes: &[u8]) -> Result<(), EngineError> {
-        let export = self.kind.export("feed");
         for slice in bytes.chunks(FEED_SLICE_BYTES) {
-            let ptr = self.host.write(slice)?;
-            self.host.call(
-                &export,
-                &[
-                    Val::I32(self.handle),
-                    Val::I32(ptr),
-                    Val::I32(i32::try_from(slice.len()).map_err(host_error)?),
-                ],
-                0,
-            )?;
+            self.in_time()?;
+            match &mut self.inner {
+                Inner::Appraisal(run) => run.feed(slice),
+                Inner::LabelCheck(run) => run.feed(slice),
+                Inner::ThresholdCount(run) => run.feed(slice),
+            }?;
         }
         Ok(())
     }
@@ -533,19 +349,12 @@ impl Run {
     ///
     /// [`EngineError::Module`] if the engine reports an error, otherwise as for [`Run::feed`].
     pub fn next_pass(&mut self) -> Result<bool, EngineError> {
-        let export = self.kind.export("nextPass");
-        match self.kind {
-            Kind::Appraisal => {
-                let r = self.host.call(&export, &[Val::I32(self.handle)], 3)?;
-                if r[2] != 0 {
-                    return Err(EngineError::Module(self.host.take_error(r[1])?));
-                }
-                Ok(r[0] != 0)
-            }
-            Kind::LabelCheck | Kind::ThresholdCount => {
-                Ok(self.host.call(&export, &[Val::I32(self.handle)], 1)?[0] != 0)
-            }
-        }
+        self.in_time()?;
+        Ok(match &mut self.inner {
+            Inner::Appraisal(run) => run.next_pass()?,
+            Inner::LabelCheck(run) => run.next_pass()?,
+            Inner::ThresholdCount(run) => run.next_pass()?,
+        })
     }
 
     /// Ends the run and returns the engine's JSON result.
@@ -553,100 +362,12 @@ impl Run {
     /// # Errors
     ///
     /// [`EngineError::Module`] if the engine reports an error, otherwise as for [`Run::feed`].
-    pub fn finish(mut self) -> Result<String, EngineError> {
-        let export = self.kind.export("finish");
-        let r = self.host.call(&export, &[Val::I32(self.handle)], 4)?;
-        if r[3] != 0 {
-            return Err(EngineError::Module(self.host.take_error(r[2])?));
-        }
-        let text = String::from_utf8(self.host.read(r[0], r[1])?).map_err(host_error)?;
-        self.host.call(
-            "__wbindgen_free",
-            &[Val::I32(r[0]), Val::I32(r[1]), Val::I32(1)],
-            0,
-        )?;
-        Ok(text)
-    }
-}
-
-struct Host {
-    store: Store<State>,
-    instance: Instance,
-}
-
-impl Host {
-    fn call(&mut self, name: &str, args: &[Val], results: usize) -> Result<Vec<i32>, EngineError> {
-        let func = self
-            .instance
-            .get_func(&mut self.store, name)
-            .ok_or_else(|| host_error(format!("no export {name}")))?;
-        let mut out = vec![Val::I32(0); results];
-        if let Err(error) = func.call(&mut self.store, args, &mut out) {
-            return Err(classify(&error, self.store.data().cap.denied));
-        }
-        Ok(out.iter().map(Val::unwrap_i32).collect())
-    }
-
-    fn memory(&mut self) -> Result<wasmtime::Memory, EngineError> {
-        self.instance
-            .get_memory(&mut self.store, "memory")
-            .ok_or_else(|| host_error("no memory export"))
-    }
-
-    fn write(&mut self, bytes: &[u8]) -> Result<i32, EngineError> {
-        let size = i32::try_from(bytes.len()).map_err(host_error)?;
-        let ptr = self.call("__wbindgen_malloc", &[Val::I32(size), Val::I32(1)], 1)?[0];
-        let memory = self.memory()?;
-        memory
-            .write(&mut self.store, ptr as u32 as usize, bytes)
-            .map_err(host_error)?;
-        Ok(ptr)
-    }
-
-    fn read(&mut self, ptr: i32, length: i32) -> Result<Vec<u8>, EngineError> {
-        let memory = self.memory()?;
-        let start = ptr as u32 as usize;
-        memory
-            .data(&self.store)
-            .get(start..start + length as u32 as usize)
-            .map(<[u8]>::to_vec)
-            .ok_or_else(|| host_error("read out of bounds"))
-    }
-
-    fn take_error(&mut self, index: i32) -> Result<String, EngineError> {
-        let table = self
-            .store
-            .data()
-            .table
-            .ok_or_else(|| host_error("no externref table"))?;
-        let value = table
-            .get(&mut self.store, u64::from(index as u32))
-            .ok_or_else(|| host_error("empty error slot"))?;
-        let text = match value.as_extern().flatten() {
-            Some(slot) => {
-                let slot: &Rooted<ExternRef> = slot;
-                match slot.data(&self.store).map_err(host_error)? {
-                    Some(data) => data
-                        .downcast_ref::<String>()
-                        .cloned()
-                        .unwrap_or_else(|| "an error that is not text".to_owned()),
-                    None => "an error with no data".to_owned(),
-                }
-            }
-            None => "an empty error".to_owned(),
-        };
-        self.call("__externref_table_dealloc", &[Val::I32(index)], 0)?;
-        Ok(text)
-    }
-
-    fn string_result(&mut self, name: &str) -> Result<String, EngineError> {
-        let r = self.call(name, &[], 2)?;
-        let text = String::from_utf8(self.read(r[0], r[1])?).map_err(host_error)?;
-        self.call(
-            "__wbindgen_free",
-            &[Val::I32(r[0]), Val::I32(r[1]), Val::I32(1)],
-            0,
-        )?;
-        Ok(text)
+    pub fn finish(self) -> Result<String, EngineError> {
+        self.in_time()?;
+        Ok(match self.inner {
+            Inner::Appraisal(run) => run.finish()?,
+            Inner::LabelCheck(run) => run.finish()?,
+            Inner::ThresholdCount(run) => run.finish()?,
+        })
     }
 }

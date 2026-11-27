@@ -10,7 +10,6 @@ use std::time::Duration;
 
 const DEFAULT_SIDECAR: &str = "http://localhost:8080";
 const DEFAULT_MAA: &str = "sharedeus.eus.attest.azure.net";
-const DEFAULT_ENGINE: &str = "/opt/enclave/engine.wasm";
 const DEFAULT_CIRCUIT: &str = "tabular_appraisal_r7";
 const DEFAULT_CACHE: &str = "/var/lib/enclave/cache";
 const DEFAULT_PARALLEL: usize = 8;
@@ -22,8 +21,10 @@ const GIB: u64 = 1 << 30;
 /// The share of the configured memory the container's cgroup must show, in percent: the platform keeps some of what a
 /// container is sold, and a gigabyte may be decimal.
 const MEMORY_FLOOR_PERCENT: u64 = 85;
-/// WebAssembly linear memory cannot exceed 4 GiB.
-const WASM_MEMORY_LIMIT: u64 = 4 * GIB;
+/// The most memory pass 2 of an appraisal is given for its duplicate counts.
+const MAX_PASS_TWO_BUDGET: u64 = GIB;
+/// The least it is given: a smaller budget only adds readings of the file.
+const MIN_PASS_TWO_BUDGET: u64 = 256 * (1 << 20);
 
 /// Why the settings could not be read.
 #[derive(Debug, Clone, Copy, thiserror::Error, PartialEq, Eq)]
@@ -58,9 +59,7 @@ pub struct Config {
     pub ipfs_gateways: Vec<String>,
     /// The public circuit artifact bucket.
     pub artifacts_url: String,
-    /// Where the engine module is in the image.
-    pub engine_path: PathBuf,
-    /// The SHA-256 the engine module must have.
+    /// The SHA-256 the engine library linked into this build must have.
     pub engine_sha256: Bytes32,
     /// The appraisal circuit's name.
     pub appraisal_circuit: String,
@@ -178,7 +177,6 @@ impl Config {
             chain_id,
             ipfs_gateways,
             artifacts_url: https("ENCLAVE_ARTIFACTS_URL", &required("ENCLAVE_ARTIFACTS_URL")?)?,
-            engine_path: PathBuf::from(optional("ENCLAVE_ENGINE_PATH", DEFAULT_ENGINE)),
             engine_sha256: Bytes32::parse(&required("ENCLAVE_ENGINE_SHA256")?)
                 .map_err(|_| ConfigError::Invalid("ENCLAVE_ENGINE_SHA256"))?,
             appraisal_circuit: name_of(
@@ -248,13 +246,12 @@ pub fn mem_available_bytes(meminfo: &str) -> Result<u64, ConfigError> {
     kilobytes.checked_mul(1024).ok_or(ConfigError::Memory)
 }
 
-/// The most linear memory the engine may hold: three quarters of the memory the container has, which is the smaller of
-/// its configured size and what the kernel reports as available at start (the guest keeps about a tenth of a
-/// container's memory), and never more than WebAssembly allows, so the harness, the cache's page use and the prover
-/// keep the rest.
+/// The memory pass 2 of an appraisal may hold for its duplicate counts: half of the memory the container has, the smaller
+/// of its configured size and what the kernel reports as available at start, at most 1 GiB and at least 256 MiB. The engine holds about a third more than its budget at its peak, and the
+/// harness, the cache's page use and the prover keep the rest. A file whose row keys need more than the budget is read
+/// once more for each slice, and every result is the same for any budget.
 #[must_use]
-pub fn engine_memory_bytes(memory_gb: u32, available_bytes: u64) -> usize {
+pub fn pass_two_budget_bytes(memory_gb: u32, available_bytes: u64) -> u64 {
     let usable = (u64::from(memory_gb) * GIB).min(available_bytes);
-    let bytes = (usable / 4 * 3).min(WASM_MEMORY_LIMIT);
-    usize::try_from(bytes).unwrap_or(usize::MAX)
+    (usable / 2).clamp(MIN_PASS_TWO_BUDGET, MAX_PASS_TWO_BUDGET)
 }

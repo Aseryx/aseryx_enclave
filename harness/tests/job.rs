@@ -13,7 +13,7 @@ use aseryx_enclave_harness::claim::{ClaimError, JobSource};
 use aseryx_enclave_harness::consent::{
     Address, AppraisalJob, Bytes32, Domain, ThresholdJob, Uint256, result_digest,
 };
-use aseryx_enclave_harness::engine::{EngineModule, Limits};
+use aseryx_enclave_harness::engine::NativeEngine;
 use aseryx_enclave_harness::error_code::ErrorCode;
 use aseryx_enclave_harness::job::{
     ApiError, CheckSpec, Job, JobApi, JobInputs, JobKind, ProveError, Prover, Services, run_job,
@@ -45,9 +45,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
 
-const PINNED: &str = "0x9bec14d49e3a56512cc0e54f7bd0d060841376ab94c301b7df7bfe3bba6a466d";
 const KEY: [u8; 32] = [7; 32];
 const JOB: &str = "0xd828621b01841c9a5630937da5ffb06cf43417178bee1149d90b84ca148408fa";
 const WORKLOAD: &str = "0xf6a7a4f67b3edf6d9d7c7098f9b514f53f263be0a4e32fbac2ee585d6972f20f";
@@ -62,16 +60,8 @@ fn env_path(name: &str) -> PathBuf {
     )
 }
 
-fn wasm() -> Vec<u8> {
-    std::fs::read(env_path("ENCLAVE_ENGINE_WASM")).expect("engine module")
-}
-
-fn engine() -> EngineModule {
-    let limits = Limits {
-        deadline: Duration::from_secs(120),
-        max_memory_bytes: 2 << 30,
-    };
-    EngineModule::load(&wasm(), Bytes32::parse(PINNED).expect("pin"), limits).expect("loads")
+fn engine() -> NativeEngine {
+    common::native_engine()
 }
 
 fn golden() -> Vec<u8> {
@@ -480,7 +470,7 @@ fn run(
         cache: &cache,
         engine: &engine,
         prover,
-        engine_module_sha256: Bytes32::parse(PINNED).expect("pin"),
+        engine_library_sha256: NativeEngine::library_sha256(),
         domain: domain(),
         memory_gb: 4,
         parallel_fetches: 3,
@@ -724,7 +714,6 @@ fn checked_metrics(body: &Value) -> Value {
         keys(&metrics),
         [
             "diskPeakBytes",
-            "enginePeakBytes",
             "fetch",
             "passes",
             "proofs",
@@ -815,7 +804,6 @@ fn an_appraisal_job_posts_its_metrics_signed() {
         metrics["tokenRefreshes"], 2,
         "one for the key release, one for the post"
     );
-    assert!(metrics["enginePeakBytes"].as_u64().expect("peak") > 0);
     // The result is the same value as without metrics: its signature still verifies on its own
     assert!(posted_signature_verifies(body, &body["result"]));
 }
