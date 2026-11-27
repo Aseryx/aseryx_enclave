@@ -19,6 +19,7 @@ on:
       - "harness/src/**"
       - "harness/circuit-pins.json"
       - "engine/**"
+      - "engine-native/**"
   workflow_dispatch:
     inputs:
       publish:

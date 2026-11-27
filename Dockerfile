@@ -1,11 +1,12 @@
 # The workload image. Every input is pinned: the builder and the base by digest, the crates by Cargo.lock, the engine
-# module by SHA-256. Built twice from one commit it gives one image digest (see .github/workflows/image.yml).
+# library by SHA-256. Built twice from one commit it gives one image digest (see .github/workflows/image.yml).
 
 FROM rust:1.97.1-slim-bookworm@sha256:2775a09d208ff0d7c1f50490c45b62db929e87ba1dcbc3f2132ac71a704bcdd3 AS build
 
 WORKDIR /src
 COPY engine engine
-RUN cd engine && sha256sum --check --strict aseryx_engine_wasm_bg.wasm.sha256
+RUN cd engine && sha256sum --check --strict libaseryx_engine_ffi.a.sha256
+COPY engine-native engine-native
 
 COPY Cargo.toml Cargo.lock ./
 COPY harness harness
@@ -16,8 +17,7 @@ ENV CARGO_INCREMENTAL=0
 RUN cargo build --release --locked -p aseryx-enclave-harness --bin aseryx-enclave
 
 RUN mkdir -p /rootfs/var/lib/enclave/cache /rootfs/opt/enclave \
- && cp target/release/aseryx-enclave /rootfs/aseryx-enclave \
- && cp engine/aseryx_engine_wasm_bg.wasm /rootfs/opt/enclave/engine.wasm
+ && cp target/release/aseryx-enclave /rootfs/aseryx-enclave
 
 FROM gcr.io/distroless/cc-debian12:nonroot@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f
 
