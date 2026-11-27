@@ -13,7 +13,7 @@ engine asks: for the texts a deployer could try, is the text allowed? It fails u
   its value followed by text that would satisfy another rule (the platform's, or the memory rule's);
 - ENCLAVE_MEMORY_GB is allowed with the whole numbers 1 to 32 and no other text, and no other variable is allowed by its
   rule (X=ENCLAVE_MEMORY_GB=4, ENCLAVE_API_URL=<value>?ENCLAVE_MEMORY_GB=4, LD_PRELOAD=/a:ENCLAVE_MEMORY_GB=4);
-- the workload allows no exec and no stdio, and the engine pin in its environment is the hash of the engine module.
+- the workload allows no exec and no stdio, and the engine pin in its environment is the hash of the engine library.
 """
 import json
 import re
@@ -155,7 +155,7 @@ def main(policy_path: str, template_path: str, engine_path: str) -> int:
 
     pin = open(engine_path).read().split()[0]
     if expected.get("ENCLAVE_ENGINE_SHA256") != "0x" + pin:
-        problems.append("ENCLAVE_ENGINE_SHA256 is not the hash of the engine module in the image")
+        problems.append("ENCLAVE_ENGINE_SHA256 is not the hash of the engine library in the image")
     if not re.fullmatch(r"0x[0-9a-f]{64}", expected.get("ENCLAVE_ENGINE_SHA256", "")):
         problems.append("ENCLAVE_ENGINE_SHA256 is not 0x and 64 lower-case hex digits")
 

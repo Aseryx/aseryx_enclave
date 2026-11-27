@@ -5,3 +5,6 @@
 !harness/src
 !harness/circuit-pins.json
 !engine
+!engine-native/Cargo.toml
+!engine-native/build.rs
+!engine-native/src

@@ -1,8 +1,8 @@
 CARGO ?= cargo
 
-# The engine module browsers run (engine/) and the aseryx-engine goldens (harness/tests/tabular). The engine tests
-# fail when either is missing.
-export ENCLAVE_ENGINE_WASM ?= $(abspath engine/aseryx_engine_wasm_bg.wasm)
+# The aseryx-engine goldens (harness/tests/tabular). The engine tests fail when they are missing. The engine itself is
+# the static library in engine/, linked into the harness.
+
 export ENCLAVE_CIRCUITS ?= $(abspath .cache/circuits)
 export ENCLAVE_TABULAR_FIXTURES ?= $(abspath harness/tests/tabular)
 
