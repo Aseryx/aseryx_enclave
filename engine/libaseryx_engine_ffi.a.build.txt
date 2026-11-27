@@ -1,0 +1,13 @@
+library: libaseryx_engine_ffi-0.17.0-x86_64-unknown-linux-gnu.a
+sha256: 0b9c9196e2a6fc73f64032cf39ffd7fa7d55f4e46b7554128216b62d81493d54
+image: ubuntu24 20261122.23.1
+strip: GNU strip (GNU Binutils for Ubuntu) 2.42
+ar: GNU ar (GNU Binutils for Ubuntu) 2.42
+rustc:
+rustc 1.97.1 (8bab26f4f 2026-07-14)
+binary: rustc
+commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452
+commit-date: 2026-07-14
+host: x86_64-unknown-linux-gnu
+release: 1.97.1
+LLVM version: 22.1.6
